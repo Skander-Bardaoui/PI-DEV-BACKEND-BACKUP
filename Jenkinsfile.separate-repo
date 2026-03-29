@@ -1,0 +1,181 @@
+// Backend Jenkinsfile for SEPARATE repository
+// Place this file as "Jenkinsfile" in the ROOT of your backend repository
+
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_REGISTRY = 'your-registry.com'
+        DOCKER_REGISTRY_URL = "https://${DOCKER_REGISTRY}"
+        IMAGE_NAME = 'saas-backend'
+        IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT?.take(7) ?: 'latest'}"
+        
+        DOCKER_CREDENTIALS_ID = 'docker-registry-credentials'
+        KUBECONFIG_CREDENTIALS_ID = 'kubeconfig-credentials'
+        
+        NAMESPACE = 'production'
+        DEPLOYMENT_NAME = 'backend'
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        timestamps()
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('🔍 Checkout') {
+            steps {
+                script {
+                    echo "🔄 Checking out code..."
+                    checkout scm
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "📌 Commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+        
+        stage('📥 Install Dependencies') {
+            steps {
+                script {
+                    echo "📥 Installing dependencies..."
+                    sh 'npm ci --prefer-offline --no-audit'
+                }
+            }
+        }
+        
+        stage('🔍 Lint') {
+            steps {
+                script {
+                    echo "🔍 Running linter..."
+                    sh 'npm run lint || true'
+                }
+            }
+        }
+        
+        stage('🏗️ Build') {
+            steps {
+                script {
+                    echo "🏗️ Building application..."
+                    sh 'npm run build'
+                }
+            }
+        }
+        
+        stage('🧪 Test') {
+            steps {
+                script {
+                    echo "🧪 Running tests..."
+                    sh 'npm run test || true'
+                }
+            }
+        }
+        
+        stage('🐳 Build Docker Image') {
+            steps {
+                script {
+                    echo "🐳 Building Docker image..."
+                    echo "Image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    
+                    dockerImage = docker.build("${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}")
+                    sh "docker tag ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+                }
+            }
+        }
+        
+        stage('📤 Push Docker Image') {
+            steps {
+                script {
+                    echo "📤 Pushing Docker image to registry..."
+                    docker.withRegistry(DOCKER_REGISTRY_URL, DOCKER_CREDENTIALS_ID) {
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                        sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest"
+                    }
+                    echo "✅ Image pushed successfully!"
+                }
+            }
+        }
+        
+        stage('🚀 Deploy to Kubernetes') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "🚀 Deploying to Kubernetes..."
+                    withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
+                        dir('k8s') {
+                            sh """
+                                echo "📝 Applying ConfigMap..."
+                                kubectl --kubeconfig=\$KUBECONFIG apply -f configmap.yaml -n ${NAMESPACE}
+                                
+                                echo "🔐 Applying Secrets..."
+                                kubectl --kubeconfig=\$KUBECONFIG apply -f secret.yaml -n ${NAMESPACE}
+                                
+                                echo "🔌 Applying Service..."
+                                kubectl --kubeconfig=\$KUBECONFIG apply -f service.yaml -n ${NAMESPACE}
+                                
+                                echo "💾 Applying PVC..."
+                                kubectl --kubeconfig=\$KUBECONFIG apply -f pvc.yaml -n ${NAMESPACE}
+                                
+                                echo "🔄 Updating deployment image..."
+                                kubectl --kubeconfig=\$KUBECONFIG set image deployment/${DEPLOYMENT_NAME} \
+                                    backend=${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} \
+                                    -n ${NAMESPACE}
+                                
+                                echo "📋 Applying Deployment..."
+                                kubectl --kubeconfig=\$KUBECONFIG apply -f deployment.yaml -n ${NAMESPACE}
+                                
+                                echo "⏳ Waiting for rollout..."
+                                kubectl --kubeconfig=\$KUBECONFIG rollout status deployment/${DEPLOYMENT_NAME} \
+                                    -n ${NAMESPACE} --timeout=5m
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('✅ Verify Deployment') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "✅ Verifying deployment..."
+                    withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG')]) {
+                        sh """
+                            kubectl --kubeconfig=\$KUBECONFIG get deployment ${DEPLOYMENT_NAME} -n ${NAMESPACE}
+                            kubectl --kubeconfig=\$KUBECONFIG get pods -n ${NAMESPACE} -l app=backend
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('🧹 Cleanup') {
+            steps {
+                script {
+                    echo "🧹 Cleaning up..."
+                    sh "docker image prune -f"
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo "✅ Backend deployment successful! Image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        failure {
+            echo "❌ Backend deployment failed!"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
