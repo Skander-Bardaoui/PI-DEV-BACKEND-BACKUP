@@ -1,9 +1,9 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateSalesOrderItemDto {
-  @IsOptional()
+  @IsNotEmpty({ message: 'Le produit est obligatoire pour le suivi des stocks' })
   @IsUUID('4', { message: 'Produit invalide' })
-  productId?: string;
+  productId: string; // ✅ Made REQUIRED - no more optional
 
   @IsNotEmpty({ message: 'La description est obligatoire' })
   @IsString()

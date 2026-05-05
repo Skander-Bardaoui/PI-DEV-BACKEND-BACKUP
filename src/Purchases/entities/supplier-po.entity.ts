@@ -90,7 +90,9 @@ export class SupplierPO {
   updated_at: Date;
 
   // ── Relations ─────────────────────────────────────────────────
-  @OneToMany(() => SupplierPOItem, (item) => item.supplier_po, { cascade: true })
+  @OneToMany(() => SupplierPOItem, (item) => item.supplier_po, { 
+    cascade: true
+  })
   items: SupplierPOItem[];
 
   @OneToMany(() => GoodsReceipt, (gr) => gr.supplier_po)

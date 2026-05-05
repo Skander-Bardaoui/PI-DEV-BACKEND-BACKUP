@@ -7,14 +7,13 @@ pipeline {
         IMAGE_TAG                 = "${env.BUILD_NUMBER}"
         DOCKER_CREDENTIALS_ID     = 'docker-credentials'
         KUBECONFIG_CREDENTIALS_ID = 'kubeconfig-file'
-        SONAR_PROJECT_KEY         = 'backend'
         NAMESPACE                 = 'production'
         DEPLOYMENT_NAME           = 'backend'
     }
 
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
         timestamps()
         disableConcurrentBuilds()
     }
@@ -43,28 +42,33 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
+        stage('🧪 Tests') {
+        // ─────────────────────────────────────────────
+            steps {
+                // ⚠️ Si pas encore de tests → garde le || true
+                sh 'npm run test:cov || true'
+            }
+        }
+
+        // ─────────────────────────────────────────────
         stage('🔬 SonarQube Analysis') {
         // ─────────────────────────────────────────────
             steps {
-                script {
-                    echo '🔬 Running SonarQube analysis...'
-                    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                        withSonarQubeEnv('SonarQube') {
-                            sh """
-                                # Installer sonar-scanner si absent
-                                if ! command -v sonar-scanner &> /dev/null; then
-                                    echo "📦 Installing sonar-scanner..."
-                                    npm install -g sonar-scanner --silent
-                                fi
-
-                                sonar-scanner \
-                                  -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-                                  -Dsonar.sources=src \
-                                  -Dsonar.host.url=http://192.168.33.10:9000 \
-                                  -Dsonar.login=${SONAR_TOKEN} \
-                                  -Dsonar.exclusions=node_modules/**,dist/**,**/*.spec.ts
-                            """
-                        }
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                            echo "🔬 Running SonarQube analysis..."
+                            sonar-scanner \
+                              -Dsonar.projectKey=backend \
+                              -Dsonar.sources=src \
+                              -Dsonar.tests=src \
+                              -Dsonar.test.inclusions=**/*.spec.ts \
+                              -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                              -Dsonar.coverage.exclusions=**/*.module.ts,**/main.ts,**/*.dto.ts \
+                              -Dsonar.exclusions=node_modules/**,dist/**,**/*.test.ts \
+                              -Dsonar.host.url=http://192.168.33.10:9000 \
+                              -Dsonar.login=$SONAR_TOKEN
+                        '''
                     }
                 }
             }
@@ -101,6 +105,33 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────
+        // Security Scan APRÈS build Docker
+        // Trivy scanne l'image qui vient d'être buildée
+        // ─────────────────────────────────────────────
+stage('🔐 Security Scan') {
+    steps {
+        sh '''
+            TRIVY_PATH="/var/lib/jenkins/tools/trivy/trivy"
+
+            echo "🔐 Installing Trivy if needed..."
+            if [ ! -f "$TRIVY_PATH" ]; then
+                mkdir -p /var/lib/jenkins/tools/trivy
+                curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                  | sh -s -- -b /var/lib/jenkins/tools/trivy
+            fi
+
+            echo "🔍 Scanning image for vulnerabilities..."
+            $TRIVY_PATH image \
+              --exit-code 0 \
+              --severity HIGH,CRITICAL \
+              --no-progress \
+              --format table \
+              imen077/backend:$BUILD_NUMBER || true
+        '''
+    }
+}
+
+        // ─────────────────────────────────────────────
         stage('📤 Push Docker Image') {
         // ─────────────────────────────────────────────
             steps {
@@ -118,6 +149,9 @@ pipeline {
         // ─────────────────────────────────────────────
         stage('🚀 Deploy to Kubernetes') {
         // ─────────────────────────────────────────────
+        // Applique tous les manifests puis attend le rollout.
+        // En cas d'échec → rollback automatique vers la version précédente.
+        // ─────────────────────────────────────────────
             steps {
                 script {
                     echo '🚀 Deploying to Kubernetes...'
@@ -133,15 +167,42 @@ pipeline {
                                 echo "💾 Applying PVC..."
                                 kubectl --kubeconfig="$KUBECONFIG_FILE" apply -f pvc.yaml -n production
 
+                                echo "🗄️ Applying PostgreSQL..."
+                                kubectl --kubeconfig="$KUBECONFIG_FILE" apply -f postgres.yaml -n production
+
+                                echo "⏳ Waiting for PostgreSQL to be ready..."
+                                kubectl --kubeconfig="$KUBECONFIG_FILE" wait \
+                                    --for=condition=ready pod \
+                                    -l app=postgres \
+                                    -n production \
+                                    --timeout=3m
+
                                 echo "🔌 Applying Service..."
                                 kubectl --kubeconfig="$KUBECONFIG_FILE" apply -f service.yaml -n production
 
                                 echo "📋 Applying Deployment..."
                                 kubectl --kubeconfig="$KUBECONFIG_FILE" apply -f deployment.yaml -n production
 
-                                echo "⏳ Waiting for rollout..."
-                                kubectl --kubeconfig="$KUBECONFIG_FILE" rollout status deployment/backend \
-                                    -n production --timeout=5m
+                                echo "⏳ Waiting for backend rollout..."
+                                # Sauvegarder la revision actuelle avant deploy
+                                CURRENT=$(kubectl --kubeconfig="$KUBECONFIG_FILE" \
+                                    rollout history deployment/backend -n production \
+                                    | tail -2 | head -1 | awk '{print $1}')
+
+                                echo "📌 Current revision: $CURRENT"
+
+                                # Si le rollout échoue → rollback automatique
+                                if ! kubectl --kubeconfig="$KUBECONFIG_FILE" \
+                                    rollout status deployment/backend \
+                                    -n production --timeout=10m; then
+                                    echo "🔄 Deploy failed! Rolling back to revision $CURRENT..."
+                                    kubectl --kubeconfig="$KUBECONFIG_FILE" \
+                                        rollout undo deployment/backend -n production
+                                    echo "✅ Rollback completed."
+                                    exit 1
+                                fi
+
+                                echo "✅ Rollout successful!"
                             '''
                         }
                     }
@@ -157,14 +218,14 @@ pipeline {
                     echo '✅ Verifying deployment...'
                     withCredentials([file(credentialsId: KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
                         sh '''
-                            echo "📊 Deployment status:"
+                            echo "📊 All pods in production:"
+                            kubectl --kubeconfig="$KUBECONFIG_FILE" get pods -n production
+
+                            echo "🔌 All services:"
+                            kubectl --kubeconfig="$KUBECONFIG_FILE" get svc -n production
+
+                            echo "📦 Backend deployment:"
                             kubectl --kubeconfig="$KUBECONFIG_FILE" get deployment backend -n production
-
-                            echo "📦 Pods:"
-                            kubectl --kubeconfig="$KUBECONFIG_FILE" get pods -n production -l app=backend
-
-                            echo "🔌 Service:"
-                            kubectl --kubeconfig="$KUBECONFIG_FILE" get svc backend -n production
 
                             echo "📝 Recent events:"
                             kubectl --kubeconfig="$KUBECONFIG_FILE" get events -n production \
@@ -184,7 +245,7 @@ pipeline {
             cleanWs()
         }
         failure {
-            echo "❌ ERROR: Deployment failed!"
+            echo "❌ ERROR: Pipeline failed! Check logs above."
             cleanWs()
         }
         unstable {

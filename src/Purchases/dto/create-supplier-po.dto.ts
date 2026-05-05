@@ -22,4 +22,9 @@ export class CreateSupplierPODto {
   @ValidateNested({ each: true })
   @Type(() => CreateSupplierPOItemDto)
   items: CreateSupplierPOItemDto[];
+
+  // ID du produit ML pour tracking (optionnel)
+  @IsOptional()
+  @IsUUID('4')
+  ml_product_id?: string;
 }

@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM node:18-bullseye-slim AS builder
+FROM node:20-bullseye-slim AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy package files
 COPY package*.json ./
 
-# ✅ FIX: Copy TypeScript + NestJS config files before install & build
+# Copy TypeScript + NestJS config files before install & build
 COPY tsconfig*.json ./
 COPY nest-cli.json ./
 
@@ -32,8 +32,11 @@ COPY . .
 # Build the application
 RUN npm run build
 
+
+# ─────────────────────────────────────────────
 # Stage 2: Production
-FROM node:18-bullseye-slim
+# ─────────────────────────────────────────────
+FROM node:20-bullseye-slim
 
 WORKDIR /app
 
@@ -65,12 +68,10 @@ COPY tsconfig*.json ./
 COPY nest-cli.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
+# Copy built dist from builder
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
-
-# Copy public folder only if it exists
-RUN if [ -d /app/public ]; then echo "public exists"; fi
 
 # Create uploads directory
 RUN mkdir -p /app/uploads/ocr-temp /app/uploads/sales-ocr-temp && \
@@ -82,12 +83,16 @@ USER nestjs
 # Expose port
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+# Health check TCP (pas besoin d'endpoint /health)
+# Vérifie juste que le port 3001 est ouvert
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD node -e "require('net').createConnection(3001, 'localhost').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
-
+# Supprimer le .env pour forcer l'utilisation des variables Kubernetes
+RUN rm -f /app/.env /app/.env.production /app/.env.local 2>/dev/null || true
+# Supprimer le .env pour que Kubernetes injecte les vraies variables
+RUN rm -f /app/.env /app/.env.* 2>/dev/null || true
 # Start the application
 CMD ["node", "dist/main.js"]

@@ -6,11 +6,18 @@ import {
 import { FileInterceptor }  from '@nestjs/platform-express';
 import { diskStorage }      from 'multer';
 import { extname, join }    from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { AuthGuard }        from '@nestjs/passport';
 import { OcrService } from '../services/ocr.service';
+import * as fs from 'fs';
+import { RolesGuard } from '../../auth/guards/roles.guard';
+import { Roles } from '../../auth/decorators/roles.decorators';
+import { Role } from '../../users/enums/role.enum';
+import { PurchasePermissionGuard } from '../guards/purchase-permission.guard';
+import { RequirePurchasePermission } from '../decorators/purchase-permission.decorator';
+import { AiFeatureGuard } from '../../platform-admin/guards/ai-feature.guard';
 
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard, PurchasePermissionGuard)
 @Controller('businesses/:businessId/ocr')
 export class OcrController {
 
@@ -19,6 +26,9 @@ export class OcrController {
   // POST /businesses/:bId/ocr/extract
   // Upload un fichier et extrait les données de la facture
   @Post('extract')
+  @UseGuards(AiFeatureGuard)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('create_purchase_invoice')
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -49,7 +59,12 @@ export class OcrController {
   ) {
     if (!file) throw new BadRequestException('Aucun fichier reçu.');
 
-    const result = await this.ocrService.extractFromFile(file.path);
+    // Lire le fichier en buffer pour l'enrichissement AI
+    const fileBuffer = fs.readFileSync(file.path);
+    const mimeType = file.mimetype;
+
+    // Utiliser extractAndEnrich au lieu de extractFromFile pour avoir l'enrichissement AI
+    const result = await this.ocrService.extractAndEnrich(fileBuffer, mimeType);
 
     // Retourner aussi le chemin du fichier pour l'attacher à la facture
     return {

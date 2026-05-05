@@ -74,73 +74,185 @@ export class SupplierOnboardingService {
 
     const html = `
 <!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<style>
-  body{font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f5f5f5;padding:20px;}
-  .btn{display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;text-decoration:none;border-radius:10px;font-size:15px;font-weight:700;}
-</style>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+      margin: 0; 
+      padding: 0; 
+      background-color: #F3F4F6;
+    }
+    .container { 
+      max-width: 600px; 
+      margin: 0 auto; 
+      background-color: #F3F4F6;
+    }
+    .btn { 
+      display: inline-block; 
+      padding: 16px 40px; 
+      background-color: #4F46E5; 
+      color: #ffffff !important; 
+      text-decoration: none; 
+      border-radius: 10px; 
+      font-size: 16px; 
+      font-weight: 700;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+    }
+    .step-number {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background-color: #4F46E5;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .step-number.success {
+      background-color: #16A34A;
+    }
+  </style>
 </head>
-<body>
-
-  <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;border-radius:12px 12px 0 0;">
-    <h1 style="color:#fff;margin:0;font-size:22px;">Invitation fournisseur</h1>
-    <p style="color:#C7D2FE;margin:4px 0 0;font-size:13px;">${businessName} vous invite à rejoindre sa plateforme</p>
-  </div>
-
-  <div style="background:#fff;padding:28px 32px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 12px 12px;">
-
-    <p style="font-size:15px;color:#374151;line-height:1.8;margin-bottom:20px;">
-      Bonjour${name ? ` <strong>${name}</strong>` : ''},<br><br>
-      <strong>${businessName}</strong> vous invite à créer votre fiche fournisseur
-      sur leur plateforme de gestion des achats.<br><br>
-      Il vous suffit de <strong>cliquer sur le bouton ci-dessous</strong> et de remplir
-      votre fiche en quelques minutes. Vous n'avez pas besoin de créer un compte.
-    </p>
-
-    <!-- Étapes -->
-    <div style="background:#F8F9FF;border:1px solid #E0E7FF;border-radius:10px;padding:16px 20px;margin-bottom:24px;">
-      <p style="margin:0 0 12px;font-size:13px;font-weight:700;color:#3730A3;">Comment ça marche :</p>
-      <div style="display:flex;flex-direction:column;gap:10px;">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="width:26px;height:26px;border-radius:50%;background:#4F46E5;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">1</div>
-          <span style="font-size:13px;color:#374151;">Cliquez sur le bouton et remplissez votre fiche (5 min)</span>
+<body style="margin: 0; padding: 0; background-color: #F3F4F6;">
+  <div class="container" style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%); padding: 32px; border-radius: 16px 16px 0 0; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);">
+      <div style="text-align: center;">
+        <div style="width: 80px; height: 80px; background: rgba(255,255,255,0.95); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 16px; padding: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+          <img src="cid:logo@novaentra" alt="Logo" style="width: 100%; height: 100%; object-fit: contain;" />
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="width:26px;height:26px;border-radius:50%;background:#4F46E5;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">2</div>
-          <span style="font-size:13px;color:#374151;">Votre fiche est validée automatiquement</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div style="width:26px;height:26px;border-radius:50%;background:#16A34A;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">3</div>
-          <span style="font-size:13px;color:#374151;">${businessName} peut maintenant vous envoyer des bons de commande</span>
-        </div>
+        <h1 style="color: #ffffff; margin: 0 0 8px 0; font-size: 24px; font-weight: 800;">${businessName}</h1>
+        <p style="color: rgba(255,255,255,0.95); margin: 0; font-size: 15px; font-weight: 500;">vous invite à rejoindre sa plateforme</p>
       </div>
     </div>
 
-    <div style="text-align:center;margin-bottom:24px;">
-      <a href="${inviteUrl}" class="btn">Créer ma fiche fournisseur →</a>
-      <p style="margin:12px 0 0;font-size:11px;color:#9CA3AF;">
-        Ce lien est valable 72 heures — usage unique
+    <!-- Main Content -->
+    <div style="background: #ffffff; padding: 36px 32px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+
+      <!-- Greeting -->
+      <p style="font-size: 16px; color: #1F2937; line-height: 1.7; margin: 0 0 24px 0;">
+        Bonjour${name ? ` <strong style="color: #4F46E5;">${name}</strong>` : ''},
+      </p>
+
+      <p style="font-size: 15px; color: #374151; line-height: 1.7; margin: 0 0 28px 0;">
+        <strong style="color: #1F2937;">${businessName}</strong> vous invite à créer votre fiche fournisseur sur leur plateforme de gestion des achats.
+      </p>
+
+      <p style="font-size: 15px; color: #374151; line-height: 1.7; margin: 0 0 32px 0;">
+        <strong>C'est simple et rapide :</strong> cliquez sur le bouton ci-dessous et remplissez votre fiche en quelques minutes. Aucun compte à créer.
+      </p>
+
+      <!-- Steps -->
+      <div style="background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%); border: 2px solid #C7D2FE; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
+        <p style="margin: 0 0 20px 0; font-size: 14px; font-weight: 700; color: #1E1B4B; text-align: center;">
+          🚀 Comment ça marche
+        </p>
+        
+        <!-- Step 1 -->
+        <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom: 16px;">
+          <tr>
+            <td align="center" style="width: 60px; vertical-align: top; padding-top: 4px;">
+              <div style="width: 44px; height: 44px; border-radius: 50%; background-color: #4F46E5; color: #ffffff; font-size: 18px; font-weight: 700; display: inline-block; line-height: 44px; text-align: center; box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);">1</div>
+            </td>
+            <td style="vertical-align: top; padding-top: 8px;">
+              <p style="margin: 0; font-size: 15px; color: #1F2937; line-height: 1.6;">
+                Cliquez sur le bouton et remplissez votre fiche<br>
+                <strong style="color: #4F46E5;">(5 minutes)</strong>
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Step 2 -->
+        <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom: 16px;">
+          <tr>
+            <td align="center" style="width: 60px; vertical-align: top; padding-top: 4px;">
+              <div style="width: 44px; height: 44px; border-radius: 50%; background-color: #4F46E5; color: #ffffff; font-size: 18px; font-weight: 700; display: inline-block; line-height: 44px; text-align: center; box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);">2</div>
+            </td>
+            <td style="vertical-align: top; padding-top: 8px;">
+              <p style="margin: 0; font-size: 15px; color: #1F2937; line-height: 1.6;">
+                Votre fiche est <strong style="color: #4F46E5;">validée automatiquement</strong>
+              </p>
+            </td>
+          </tr>
+        </table>
+
+        <!-- Step 3 -->
+        <table cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td align="center" style="width: 60px; vertical-align: top; padding-top: 4px;">
+              <div style="width: 44px; height: 44px; border-radius: 50%; background-color: #16A34A; color: #ffffff; font-size: 20px; font-weight: 700; display: inline-block; line-height: 44px; text-align: center; box-shadow: 0 2px 8px rgba(22, 163, 74, 0.3);">✓</div>
+            </td>
+            <td style="vertical-align: top; padding-top: 8px;">
+              <p style="margin: 0; font-size: 15px; color: #1F2937; line-height: 1.6;">
+                <strong style="color: #16A34A;">${businessName}</strong> peut vous envoyer des commandes
+              </p>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- CTA Button -->
+      <div style="text-align: center; margin-bottom: 32px;">
+        <a href="${inviteUrl}" class="btn" style="display: inline-block; padding: 16px 40px; background-color: #4F46E5; color: #ffffff; text-decoration: none; border-radius: 10px; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);">
+          Créer ma fiche fournisseur →
+        </a>
+        <p style="margin: 14px 0 0 0; font-size: 12px; color: #6B7280; font-weight: 500;">
+          🔒 Lien sécurisé valable 72 heures
+        </p>
+      </div>
+
+      <!-- Info Box -->
+      <div style="background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%); border: 2px solid #FCD34D; border-radius: 12px; padding: 20px 24px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 700; color: #78350F;">
+          📋 Préparez ces informations :
+        </p>
+        <table cellpadding="0" cellspacing="0" border="0" width="100%">
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="font-size: 13px; color: #92400E; line-height: 1.7;">✓ Nom de votre entreprise</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="font-size: 13px; color: #92400E; line-height: 1.7;">✓ Matricule fiscal (si disponible)</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="font-size: 13px; color: #92400E; line-height: 1.7;">✓ Numéro RIB et nom de votre banque</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 4px 0;">
+              <span style="font-size: 13px; color: #92400E; line-height: 1.7;">✓ Numéro de téléphone</span>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; padding: 24px 16px;">
+      <p style="margin: 0 0 8px 0; font-size: 12px; color: #6B7280; line-height: 1.6;">
+        Si vous n'êtes pas concerné par cette invitation, ignorez cet email.
+      </p>
+      <p style="margin: 0; font-size: 11px; color: #9CA3AF;">
+        Invitation envoyée par <strong>${businessName}</strong> via NovaEntra
       </p>
     </div>
 
-    <!-- Infos à avoir -->
-    <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:14px 18px;">
-      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#92400E;">📋 Préparez ces informations :</p>
-      <ul style="margin:0;padding-left:18px;font-size:12px;color:#78350F;line-height:1.8;">
-        <li>Nom de votre entreprise</li>
-        <li>Matricule fiscal (si disponible)</li>
-        <li>Numéro RIB et nom de votre banque</li>
-        <li>Numéro de téléphone</li>
-      </ul>
-    </div>
   </div>
-
-  <div style="padding:14px;text-align:center;font-size:11px;color:#9CA3AF;">
-    Si vous n'êtes pas concerné par cette invitation, ignorez cet email.
-    Invitation envoyée par ${businessName} via NovaEntra.
-  </div>
-
-</body></html>`;
+</body>
+</html>`;
 
     try {
       await this.transporter.sendMail({
@@ -149,6 +261,13 @@ export class SupplierOnboardingService {
         replyTo: businessEmail,
         subject: `Invitation fournisseur — ${businessName} vous invite`,
         html,
+        attachments: [
+          {
+            filename: 'logo.png',
+            path: './public/logo.png',
+            cid: 'logo@novaentra',
+          },
+        ],
       });
       this.logger.log(`Invitation fournisseur envoyée à ${email} pour business ${businessId} (from: ${businessEmail})`);
     } catch (err: any) {

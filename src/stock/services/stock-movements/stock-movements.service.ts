@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { StockMovement } from '../../entities/stock-movement.entity';
-import { Product } from '../../entities/product.entity';
+import { Product, ProductType } from '../../entities/product.entity';
 import { CreateStockMovementDto } from '../../dto/create-stock-movement.dto';
 import { StockMovementType } from '../../enums/stock-movement-type.enum';
 
@@ -22,24 +22,30 @@ export class StockMovementsService {
     limit = 20,
     offset = 0,
   ): Promise<{ data: StockMovement[]; total: number }> {
-    const where: any = { business_id: businessId };
-    if (productId) where.product_id = productId;
-    if (type) where.type = type;
+    const qb = this.movementRepo
+      .createQueryBuilder('movement')
+      .leftJoinAndSelect('movement.product', 'product')
+      .where('movement.business_id = :businessId', { businessId })
+      .andWhere('movement.deleted_at IS NULL'); // Exclude soft-deleted items
 
-    const [data, total] = await this.movementRepo.findAndCount({
-      where,
-      relations: ['product'],
-      order: { created_at: 'DESC' },
-      take: limit,
-      skip: offset,
-    });
+    if (productId) {
+      qb.andWhere('movement.product_id = :productId', { productId });
+    }
+    if (type) {
+      qb.andWhere('movement.type = :type', { type });
+    }
 
+    qb.orderBy('movement.created_at', 'DESC')
+      .take(limit)
+      .skip(offset);
+
+    const [data, total] = await qb.getManyAndCount();
     return { data, total };
   }
 
   async findOne(businessId: string, id: string): Promise<StockMovement> {
     const movement = await this.movementRepo.findOne({
-      where: { id, business_id: businessId },
+      where: { id, business_id: businessId, deleted_at: IsNull() },
       relations: ['product'],
     });
     if (!movement) {
@@ -60,6 +66,12 @@ export class StockMovementsService {
       throw new NotFoundException(`Product with ID ${dto.product_id} not found`);
     }
 
+    // ==================== Alaa change for service type ====================
+    if (product.type === ProductType.SERVICE || product.type === ProductType.DIGITAL) {
+      throw new BadRequestException('Stock movements cannot be created for service or digital products.');
+    }
+    // ====================================================================
+
     const quantityBefore = Number(product.quantity);
     let quantityChange = Number(dto.quantity);
 
@@ -72,7 +84,6 @@ export class StockMovementsService {
       quantityChange = -Math.abs(quantityChange);
     } else if (
       dto.type === StockMovementType.ENTREE_ACHAT ||
-      dto.type === StockMovementType.ENTREE_RETOUR_CLIENT ||
       dto.type === StockMovementType.AJUSTEMENT_POSITIF ||
       dto.type === StockMovementType.IN
     ) {
@@ -92,6 +103,7 @@ export class StockMovementsService {
       quantity_after: quantityAfter,
       reference_type: dto.source_type || 'MANUAL',
       reference_id: dto.source_id,
+      warehouse_id: dto.warehouse_id || null,
       note: dto.note,
     });
 
@@ -121,6 +133,38 @@ export class StockMovementsService {
       await this.productRepo.save(product);
     }
 
-    await this.movementRepo.remove(movement);
+    // Soft delete by setting deleted_at
+    movement.deleted_at = new Date();
+    await this.movementRepo.save(movement);
+  }
+
+  async findArchived(businessId: string): Promise<StockMovement[]> {
+    return this.movementRepo
+      .createQueryBuilder('movement')
+      .leftJoinAndSelect('movement.product', 'product')
+      .where('movement.business_id = :businessId', { businessId })
+      .andWhere('movement.deleted_at IS NOT NULL')
+      .orderBy('movement.deleted_at', 'DESC')
+      .getMany();
+  }
+
+  async restore(businessId: string, id: string): Promise<StockMovement> {
+    const movement = await this.movementRepo
+      .createQueryBuilder('movement')
+      .where('movement.id = :id', { id })
+      .andWhere('movement.business_id = :businessId', { businessId })
+      .getOne();
+
+    if (!movement) {
+      throw new NotFoundException(`Stock movement with ID ${id} not found`);
+    }
+
+    if (!movement.deleted_at) {
+      throw new BadRequestException('Stock movement is not deleted');
+    }
+
+    movement.deleted_at = null;
+    await this.movementRepo.save(movement);
+    return this.findOne(businessId, id);
   }
 }

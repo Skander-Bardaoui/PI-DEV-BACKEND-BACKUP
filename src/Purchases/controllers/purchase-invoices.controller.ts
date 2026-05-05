@@ -18,17 +18,21 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles }      from '../../auth/decorators/roles.decorators';
 import { Role }       from '../../users/enums/role.enum';
 import { CreatePurchaseInvoiceDto } from '../dto/create-purchase-invoice.dto';
-import { DisputeInvoiceDto, UpdatePaymentAmountDto, UpdatePurchaseInvoiceDto } from '../dto/update-purchase-invoice.dto';
+import { UpdatePurchaseInvoiceDto, DisputeInvoiceDto, UpdatePaymentAmountDto } from '../schemas/purchases.schemas';
+import { QueryPurchaseInvoicesDto } from '../dto/update-purchase-invoice.dto';
+import { PurchasePermissionGuard } from '../guards/purchase-permission.guard';
+import { RequirePurchasePermission } from '../decorators/purchase-permission.decorator';
 
 @Controller('businesses/:businessId/purchase-invoices')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, PurchasePermissionGuard)
 export class PurchaseInvoicesController {
 
   constructor(private readonly service: PurchaseInvoicesService) {}
 
   // POST /businesses/:businessId/purchase-invoices
   @Post()
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('create_purchase_invoice')
   @HttpCode(HttpStatus.CREATED)
   create(
     @Param('businessId', ParseUUIDPipe) businessId: string,
@@ -42,7 +46,7 @@ export class PurchaseInvoicesController {
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
   findAll(
     @Param('businessId', ParseUUIDPipe) businessId: string,
-    @Query() query: any,
+    @Query() query: QueryPurchaseInvoicesDto,
   ) {
     return this.service.findAll(businessId, query);
   }
@@ -85,7 +89,8 @@ async findApprovedOrPartial(
 
   // PATCH /businesses/:businessId/purchase-invoices/:id
   @Patch(':id')
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('update_purchase_invoice')
   update(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -96,7 +101,8 @@ async findApprovedOrPartial(
 
   // POST /businesses/:businessId/purchase-invoices/:id/approve
   @Post(':id/approve')
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('update_purchase_invoice')
   approve(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -106,7 +112,8 @@ async findApprovedOrPartial(
 
   // POST /businesses/:businessId/purchase-invoices/:id/dispute
   @Post(':id/dispute')
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('update_purchase_invoice')
   dispute(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -117,7 +124,8 @@ async findApprovedOrPartial(
 
   // POST /businesses/:businessId/purchase-invoices/:id/resolve-dispute
   @Post(':id/resolve-dispute')
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('update_purchase_invoice')
   resolveDispute(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -129,7 +137,8 @@ async findApprovedOrPartial(
   // ANOMALIE 8 FIX: Cette route devrait être dans PaymentsModule, pas ici
   // Mais on la garde pour compatibilité ascendante avec un warning
   @Patch(':id/payment')
-  @Roles(Role.BUSINESS_OWNER, Role.ACCOUNTANT)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
+  @RequirePurchasePermission('pay_purchase_invoice')
   updatePayment(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,

@@ -19,14 +19,17 @@ import { Roles } from '../../auth/decorators/roles.decorators';
 import { Role } from '../../users/enums/role.enum';
 import { CreateDeliveryNoteDto } from '../dto/create-delivery-note.dto';
 import { UpdateDeliveryNoteDto } from '../dto/update-delivery-note.dto';
+import { SalesPermissionGuard } from '../guards/sales-permission.guard';
+import { RequireSalesPermission } from '../decorators/sales-permission.decorator';
 
 @Controller('businesses/:businessId/delivery-notes')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, SalesPermissionGuard)
 export class DeliveryNotesController {
   constructor(private readonly service: DeliveryNotesService) {}
 
   @Post()
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('create_delivery')
   @HttpCode(HttpStatus.CREATED)
   create(
     @Param('businessId', ParseUUIDPipe) businessId: string,
@@ -55,6 +58,7 @@ export class DeliveryNotesController {
 
   @Patch(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_delivery')
   update(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -65,6 +69,7 @@ export class DeliveryNotesController {
 
   @Post(':id/deliver')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_delivery')
   markDelivered(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -74,6 +79,7 @@ export class DeliveryNotesController {
 
   @Post(':id/cancel')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  @RequireSalesPermission('cancel_delivery')
   cancel(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -83,6 +89,7 @@ export class DeliveryNotesController {
 
   @Delete(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  @RequireSalesPermission('cancel_delivery')
   @HttpCode(HttpStatus.NO_CONTENT)
   delete(
     @Param('businessId', ParseUUIDPipe) businessId: string,

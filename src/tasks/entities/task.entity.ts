@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   ManyToMany,
+  OneToMany,
   JoinTable,
   JoinColumn,
 } from 'typeorm';
@@ -49,6 +50,9 @@ export class Task {
     default: TaskStatus.TODO,
   })
   status: TaskStatus;
+
+  @Column({ type: 'integer', default: 0 })
+  order: number;
 
   @ManyToMany(() => User)
   @JoinTable({

@@ -49,6 +49,16 @@ export class Message {
   @Column({ nullable: true, default: '#4F46E5' })
   messageColor: string; // User's chosen message color
 
+  @Column({ nullable: true })
+  parentMessageId: string;
+
+  @ManyToOne(() => Message, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'parentMessageId' })
+  parentMessage: Message;
+
+  @Column({ type: 'int', default: 0 })
+  replyCount: number;
+
   @CreateDateColumn()
   createdAt: Date;
 }

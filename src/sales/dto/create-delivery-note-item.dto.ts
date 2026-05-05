@@ -1,9 +1,9 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateDeliveryNoteItemDto {
-  @IsOptional()
+  @IsNotEmpty({ message: 'Le produit est obligatoire' })
   @IsUUID('4', { message: 'Produit invalide' })
-  productId?: string;
+  productId: string;
 
   @IsNotEmpty({ message: 'La description est obligatoire' })
   @IsString()

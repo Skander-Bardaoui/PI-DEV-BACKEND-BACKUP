@@ -11,9 +11,14 @@ import {
   Min, 
   Max, 
   Matches,
-  IsBoolean 
+  IsBoolean,
+  IsEnum,
+  IsUUID
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsValidInternationalPhone } from '../../common/validators/phone-number.validator';
+import { IsPostalCodeMatchingCity } from '../../common/validators/address.validator';
+import { BillingCycle } from '../../platform-admin/enums/billing-cycle.enum';
 
 // Nested DTOs (unchanged)
 class TenantInfoDto {
@@ -42,6 +47,9 @@ class AddressDto {
   city: string;
 
   @IsString()
+  @IsPostalCodeMatchingCity({
+    message: 'Le code postal ne correspond pas à la ville sélectionnée',
+  })
   postalCode: string;
 
   @IsString()
@@ -114,6 +122,7 @@ export class RegisterDto {
 
   @IsOptional()
   @IsString()
+  @IsValidInternationalPhone({ message: 'Le numéro de téléphone doit être au format international (ex: +21612345678)' })
   phone_number?: string;
 
   // Tenant, Business, TaxRate remain the same
@@ -131,4 +140,11 @@ export class RegisterDto {
   @ValidateNested()
   @Type(() => TaxRateInfoDto)
   taxRate!: TaxRateInfoDto;
+
+  // Plan Selection
+  @IsUUID()
+  planId!: string;
+
+  @IsEnum(BillingCycle)
+  billingCycle!: BillingCycle;
 }

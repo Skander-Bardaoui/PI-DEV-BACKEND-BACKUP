@@ -1,6 +1,10 @@
 import { IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateInvoiceItemDto {
+  @IsOptional()
+  @IsUUID('4', { message: 'Produit invalide' })
+  productId?: string;
+
   @IsNotEmpty({ message: 'La description est obligatoire' })
   @IsString()
   description: string;

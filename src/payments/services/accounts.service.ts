@@ -3,21 +3,113 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Account } from '../entities/account.entity';
 import { CreateAccountDto } from '../dto/create-account.dto';
 import { UpdateAccountDto } from '../dto/update-account.dto';
+import { BusinessMember } from '../../businesses/entities/business-member.entity';
+import { User } from '../../users/entities/user.entity';
+import { Business } from '../../businesses/entities/business.entity';
+import { Tenant } from '../../tenants/entities/tenant.entity';
+import { Role } from '../../users/enums/role.enum';
+import { PermissionUtil } from '../../businesses/utils/permission.util';
 
 @Injectable()
 export class AccountsService {
   constructor(
     @InjectRepository(Account)
     private readonly accountRepo: Repository<Account>,
+
+    @InjectRepository(BusinessMember)
+    private readonly memberRepo: Repository<BusinessMember>,
+
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+
+    @InjectRepository(Tenant)
+    private readonly tenantRepo: Repository<Tenant>,
   ) {}
 
-  async create(businessId: string, dto: CreateAccountDto): Promise<Account> {
+  // Check if user has payment permission
+  private async hasPaymentPermission(
+    userId: string,
+    businessId: string,
+    permissionKey: string,
+  ): Promise<boolean> {
+    // First, check if user is a PLATFORM_ADMIN or BUSINESS_OWNER at the user level
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return false;
+    }
+
+    // PLATFORM_ADMIN always has full access
+    if (user.role === Role.PLATFORM_ADMIN) {
+      return true;
+    }
+
+    // BUSINESS_OWNER: Check if they own the tenant that owns this business
+    if (user.role === Role.BUSINESS_OWNER) {
+      const tenant = await this.tenantRepo.findOne({
+        where: { ownerId: userId },
+      });
+
+      if (tenant) {
+        const business = await this.businessRepo.findOne({
+          where: { id: businessId },
+        });
+
+        // If the business belongs to the tenant owned by this user, they have full access
+        if (business && business.tenant_id === tenant.id) {
+          return true;
+        }
+      }
+    }
+
+    // For other roles, check BusinessMember permissions
+    const member = await this.memberRepo.findOne({
+      where: { user_id: userId, business_id: businessId, is_active: true },
+      relations: ['user'],
+    });
+
+    if (!member) {
+      return false;
+    }
+
+    // BUSINESS_OWNER role in business_members table also has full access
+    if (member.role === Role.BUSINESS_OWNER) {
+      return true;
+    }
+
+    // Check granular permission
+    return PermissionUtil.hasGranularPermission(
+      member.payment_permissions,
+      permissionKey,
+    );
+  }
+
+  async create(businessId: string, userId: string, dto: CreateAccountDto): Promise<Account> {
+    // Check permission
+    const hasPermission = await this.hasPaymentPermission(
+      userId,
+      businessId,
+      'create_account',
+    );
+
+    if (!hasPermission) {
+      throw new ForbiddenException(
+        'You do not have permission to create accounts',
+      );
+    }
+
     if (dto.is_default) {
       await this.accountRepo.update(
         { business_id: businessId, is_default: true },
@@ -52,9 +144,23 @@ export class AccountsService {
 
   async update(
     businessId: string,
+    userId: string,
     id: string,
     dto: UpdateAccountDto,
   ): Promise<Account> {
+    // Check permission
+    const hasPermission = await this.hasPaymentPermission(
+      userId,
+      businessId,
+      'update_account',
+    );
+
+    if (!hasPermission) {
+      throw new ForbiddenException(
+        'You do not have permission to update accounts',
+      );
+    }
+
     const account = await this.findOne(businessId, id);
 
     if (dto.is_default) {
@@ -78,7 +184,20 @@ export class AccountsService {
     return this.accountRepo.save(account);
   }
 
-  async toggleActive(businessId: string, id: string): Promise<Account> {
+  async toggleActive(businessId: string, userId: string, id: string): Promise<Account> {
+    // Check permission - deleting/deactivating requires delete permission
+    const hasPermission = await this.hasPaymentPermission(
+      userId,
+      businessId,
+      'delete_account',
+    );
+
+    if (!hasPermission) {
+      throw new ForbiddenException(
+        'You do not have permission to deactivate accounts',
+      );
+    }
+
     const account = await this.findOne(businessId, id);
 
     if (account.is_default && account.is_active) {

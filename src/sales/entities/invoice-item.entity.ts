@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { Invoice } from './invoice.entity';
 import { TaxRate } from '../../businesses/entities/tax-rate.entity';
+import { Product } from '../../stock/entities/product.entity';
 
 @Entity('invoice_items')
 export class InvoiceItem {
@@ -20,6 +21,13 @@ export class InvoiceItem {
   @ManyToOne(() => Invoice, (invoice) => invoice.items, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'invoice_id' })
   invoice: Invoice;
+
+  @Column({ type: 'uuid', nullable: true })
+  productId: string;
+
+  @ManyToOne(() => Product, { nullable: true })
+  @JoinColumn({ name: 'productId' })
+  product: Product;
 
   @Column({ type: 'text', nullable: true })
   description: string;

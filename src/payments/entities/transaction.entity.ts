@@ -1,10 +1,9 @@
-// src/transactions/entities/transaction.entity.ts
 import {
   Entity, PrimaryGeneratedColumn, Column,
   CreateDateColumn, ManyToOne, JoinColumn, Index,
 } from 'typeorm';
-import { Account }          from './account.entity';
-import { Business }         from '../../businesses/entities/business.entity';
+import { Account }         from './account.entity';
+import { Business }        from '../../businesses/entities/business.entity';
 import { TransactionType } from '../enums/transaction-type.enum';
 
 @Entity('transactions')
@@ -12,6 +11,7 @@ import { TransactionType } from '../enums/transaction-type.enum';
 @Index(['account_id', 'transaction_date'])
 @Index(['is_reconciled'])
 export class Transaction {
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
@@ -47,8 +47,6 @@ export class Transaction {
   @Column({ type: 'text', nullable: true })
   notes: string;
 
-  // Relation polymorphique vers l'entité source
-  // 'Payment' | 'SupplierPayment' | 'Transfer'
   @Column({ type: 'varchar', length: 50, nullable: true })
   related_entity_type: string;
 
@@ -63,4 +61,18 @@ export class Transaction {
 
   @CreateDateColumn()
   created_at: Date;
+
+  // ── Fraud detection fields ──────────────────────────────────────────
+
+  @Column({ type: 'decimal', precision: 5, scale: 4, nullable: true })
+  fraud_score: number | null;
+
+  @Column({ type: 'boolean', default: false })
+  is_fraud: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  fraud_blocked: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  fraud_reviewed: boolean;
 }

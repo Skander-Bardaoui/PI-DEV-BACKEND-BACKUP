@@ -98,10 +98,9 @@ export class ActivityLog {
   @Index()
   entityId: string;
 
-  // Relation spécifique pour les tâches
-  @ManyToOne(() => Task, (task) => task.activityLogs, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  task: Task | null;
+  // Note: We use a polymorphic relationship approach
+  // The actual entity is determined by entityType and entityId
+  // No direct foreign key relationships to avoid conflicts
 
   @Column({
     type: 'enum',

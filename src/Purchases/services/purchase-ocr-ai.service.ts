@@ -56,14 +56,43 @@ export class PurchaseOcrAiService {
 TEXTE OCR BRUT:
 ${rawText}
 
-Extrais les données et retourne UNIQUEMENT ce JSON compact:
-{"documentType":"PURCHASE_INVOICE|PURCHASE_ORDER|DELIVERY_NOTE|UNKNOWN","confidence":0,"mappedFields":{"invoiceNumber":null,"invoiceDate":null,"dueDate":null,"supplierName":null,"supplierAddress":null,"supplierTaxId":null,"items":[{"description":"","quantity":0,"unitPrice":0,"total":0}],"subtotalHt":null,"taxAmount":null,"timbreFiscal":1.000,"totalTtc":null,"notes":null}}
+Analyse ce texte et extrais les informations de la facture d'achat.
 
-RÈGLES:
-- Dates au format YYYY-MM-DD
-- Montants en nombres décimaux (virgule → point)
-- timbreFiscal = 1.000 TND par défaut en Tunisie
-- confidence = 0-100 selon qualité des données extraites`;
+INSTRUCTIONS:
+1. Identifie le type de document (FACTURE, BON DE COMMANDE, BON DE LIVRAISON)
+2. Extrais TOUTES les données visibles
+3. Calcule un score de confiance (0-100) basé sur la qualité et complétude des données
+4. Pour les montants: convertis les virgules en points décimaux
+5. Pour les dates: format YYYY-MM-DD
+6. Timbre fiscal par défaut: 1.000 TND (Tunisie)
+
+RÉPONDS EN JSON STRICT:
+{
+  "documentType": "PURCHASE_INVOICE",
+  "confidence": 85,
+  "mappedFields": {
+    "invoiceNumber": "FAC-2024-001",
+    "invoiceDate": "2024-01-15",
+    "dueDate": "2024-02-15",
+    "supplierName": "Nom du fournisseur",
+    "supplierAddress": "Adresse complète",
+    "supplierTaxId": "1234567X",
+    "items": [
+      {
+        "description": "Article 1",
+        "quantity": 10,
+        "unitPrice": 50.5,
+        "taxRate": 19,
+        "total": 505.0
+      }
+    ],
+    "subtotalHt": 505.0,
+    "taxAmount": 95.95,
+    "timbreFiscal": 1.0,
+    "totalTtc": 601.95,
+    "notes": "Notes éventuelles"
+  }
+}`;
 
     try {
       const response = await fetch(`${this.apiUrl}?key=${this.apiKey}`, {
@@ -71,22 +100,48 @@ RÈGLES:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+          generationConfig: { 
+            temperature: 0.2, 
+            maxOutputTokens: 2048,
+            topP: 0.9,
+            topK: 40,
+          },
         }),
       });
 
-      if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
+      if (!response.ok) {
+        this.logger.error(`Gemini API error: ${response.status}`);
+        return this.getFallbackResult(rawText);
+      }
 
       const data: GeminiResponse = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      this.logger.debug(`Gemini enrichOcrText réponse: ${text.length} chars`);
+      this.logger.debug(`Gemini enrichOcrText réponse: ${text.substring(0, 200)}...`);
 
-      const parsed = parseGeminiJson(text);
-      this.logger.log(`AI enrichissement — Type: ${parsed.documentType}, Confiance: ${parsed.confidence}%`);
+      // Nettoyage et extraction du JSON
+      let cleanedText = text
+        .replace(/```json\n?/gi, '')
+        .replace(/```\n?/g, '')
+        .trim();
+
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanedText = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(cleanedText);
+      
+      // Validation et valeurs par défaut
+      const confidence = typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, parsed.confidence)) : 50;
+      const documentType = ['PURCHASE_INVOICE', 'PURCHASE_ORDER', 'DELIVERY_NOTE', 'UNKNOWN'].includes(parsed.documentType) 
+        ? parsed.documentType 
+        : 'UNKNOWN';
+
+      this.logger.log(`AI enrichissement — Type: ${documentType}, Confiance: ${confidence}%`);
 
       return {
-        documentType: parsed.documentType ?? 'UNKNOWN',
-        confidence: parsed.confidence ?? 0,
+        documentType,
+        confidence,
         mappedFields: parsed.mappedFields ?? {},
         rawAiResponse: text,
       };
@@ -99,12 +154,32 @@ RÈGLES:
   async analyzeImageBuffer(buffer: Buffer, mimeType: string): Promise<OcrAiResult> {
     if (!this.apiKey) return this.getFallbackResult('');
 
-    const prompt = `Tu es un expert comptable tunisien. Analyse cette image de document fournisseur.
+    const prompt = `Tu es un expert comptable tunisien. Analyse cette image de facture d'achat.
 
-Retourne UNIQUEMENT ce JSON compact:
-{"documentType":"PURCHASE_INVOICE|PURCHASE_ORDER|DELIVERY_NOTE|UNKNOWN","confidence":0,"mappedFields":{"invoiceNumber":null,"invoiceDate":null,"dueDate":null,"supplierName":null,"supplierAddress":null,"supplierTaxId":null,"items":[{"description":"","quantity":0,"unitPrice":0,"total":0}],"subtotalHt":null,"taxAmount":null,"timbreFiscal":1.000,"totalTtc":null,"notes":null}}
+INSTRUCTIONS:
+1. Lis TOUTES les informations visibles sur le document
+2. Identifie le type: FACTURE (PURCHASE_INVOICE), BON DE COMMANDE (PURCHASE_ORDER), ou BON DE LIVRAISON (DELIVERY_NOTE)
+3. Extrais: numéro, dates, fournisseur, articles, montants
+4. Calcule un score de confiance (0-100) selon la qualité de lecture
+5. Dates au format YYYY-MM-DD
+6. Montants en décimaux (virgule → point)
+7. Timbre fiscal: 1.000 TND par défaut
 
-RÈGLES: dates YYYY-MM-DD, montants décimaux, timbreFiscal=1.000 par défaut`;
+RÉPONDS EN JSON:
+{
+  "documentType": "PURCHASE_INVOICE",
+  "confidence": 90,
+  "mappedFields": {
+    "invoiceNumber": "FAC-001",
+    "invoiceDate": "2024-01-15",
+    "supplierName": "Nom fournisseur",
+    "items": [{"description": "Article", "quantity": 1, "unitPrice": 100, "total": 100}],
+    "subtotalHt": 100,
+    "taxAmount": 19,
+    "timbreFiscal": 1.0,
+    "totalTtc": 120
+  }
+}`;
 
     try {
       const response = await fetch(`${this.apiUrl}?key=${this.apiKey}`, {
@@ -117,22 +192,48 @@ RÈGLES: dates YYYY-MM-DD, montants décimaux, timbreFiscal=1.000 par défaut`;
               { inline_data: { mime_type: mimeType, data: buffer.toString('base64') } },
             ],
           }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+          generationConfig: { 
+            temperature: 0.2, 
+            maxOutputTokens: 2048,
+            topP: 0.9,
+            topK: 40,
+          },
         }),
       });
 
-      if (!response.ok) throw new Error(`Gemini Vision API: ${response.status}`);
+      if (!response.ok) {
+        this.logger.error(`Gemini Vision API error: ${response.status}`);
+        return this.getFallbackResult('');
+      }
 
       const data: GeminiResponse = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-      this.logger.debug(`Gemini Vision réponse: ${text.length} chars`);
+      this.logger.debug(`Gemini Vision réponse: ${text.substring(0, 200)}...`);
 
-      const parsed = parseGeminiJson(text);
-      this.logger.log(`Vision AI — Type: ${parsed.documentType}, Confiance: ${parsed.confidence}%`);
+      // Nettoyage et extraction du JSON
+      let cleanedText = text
+        .replace(/```json\n?/gi, '')
+        .replace(/```\n?/g, '')
+        .trim();
+
+      const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanedText = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(cleanedText);
+      
+      // Validation et valeurs par défaut
+      const confidence = typeof parsed.confidence === 'number' ? Math.min(100, Math.max(0, parsed.confidence)) : 50;
+      const documentType = ['PURCHASE_INVOICE', 'PURCHASE_ORDER', 'DELIVERY_NOTE', 'UNKNOWN'].includes(parsed.documentType) 
+        ? parsed.documentType 
+        : 'UNKNOWN';
+
+      this.logger.log(`Vision AI — Type: ${documentType}, Confiance: ${confidence}%`);
 
       return {
-        documentType: parsed.documentType ?? 'UNKNOWN',
-        confidence: parsed.confidence ?? 0,
+        documentType,
+        confidence,
         mappedFields: parsed.mappedFields ?? {},
         rawAiResponse: text,
       };

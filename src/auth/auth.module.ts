@@ -7,19 +7,24 @@ import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { LocalStrategy } from './strategies/local.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { EmailModule } from '../email/email.module';
 import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenants/entities/tenant.entity';
 import { Business } from '../businesses/entities/business.entity';
+import { BusinessMember } from '../businesses/entities/business-member.entity';
 import { TaxRate } from '../businesses/entities/tax-rate.entity';
+import { PlatformAuthModule } from '../platform-auth/platform-auth.module';
+import { Subscription } from '../platform-admin/entities/subscription.entity';
 
 @Module({
   imports: [
     ConfigModule,
     UsersModule,
     EmailModule,
+    PlatformAuthModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -33,13 +38,15 @@ import { TaxRate } from '../businesses/entities/tax-rate.entity';
     TypeOrmModule.forFeature([
       RefreshToken,
       PasswordResetToken,
-      User,      // ADD THIS
-      Tenant,    // ADD THIS
-      Business,  // ADD THIS
-      TaxRate,   // ADD THIS
+      User,
+      Tenant,
+      Business,
+      BusinessMember,
+      TaxRate,
+      Subscription,
     ]),
   ],
-  providers: [AuthService, LocalStrategy, JwtStrategy],
+  providers: [AuthService, LocalStrategy, JwtStrategy, GoogleStrategy],
   controllers: [AuthController],
   exports: [AuthService],
 })

@@ -14,19 +14,26 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { QuotesService } from '../services/quotes.service';
+import { QuotePortalService } from '../services/quote-portal.service';
 import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorators';
 import { Role } from '../../users/enums/role.enum';
 import { CreateQuoteDto } from '../dto/create-quote.dto';
 import { UpdateQuoteDto } from '../dto/update-quote.dto';
+import { SalesPermissionGuard } from '../guards/sales-permission.guard';
+import { RequireSalesPermission } from '../decorators/sales-permission.decorator';
 
 @Controller('businesses/:businessId/quotes')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, SalesPermissionGuard)
 export class QuotesController {
-  constructor(private readonly service: QuotesService) {}
+  constructor(
+    private readonly service: QuotesService,
+    private readonly portalService: QuotePortalService,
+  ) {}
 
   @Post()
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('create_quote')
   @HttpCode(HttpStatus.CREATED)
   create(
     @Param('businessId', ParseUUIDPipe) businessId: string,
@@ -55,6 +62,7 @@ export class QuotesController {
 
   @Patch(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_quote')
   update(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -65,11 +73,13 @@ export class QuotesController {
 
   @Post(':id/send')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
-  send(
+  @RequireSalesPermission('send_quote')
+  async send(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.service.send(businessId, id);
+    await this.portalService.sendQuoteEmail(businessId, id);
+    return { message: 'Devis envoyé au client avec succès' };
   }
 
   @Post(':id/accept')
@@ -101,6 +111,7 @@ export class QuotesController {
 
   @Post(':id/convert')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('convert_quote')
   convert(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -110,6 +121,7 @@ export class QuotesController {
 
   @Post(':id/convert-to-invoice')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('convert_quote')
   async convertToInvoice(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -137,6 +149,7 @@ export class QuotesController {
 
   @Post(':id/convert-to-order')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('convert_quote')
   convertToOrder(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -146,6 +159,7 @@ export class QuotesController {
 
   @Delete(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  @RequireSalesPermission('delete_quote')
   @HttpCode(HttpStatus.OK)
   async delete(
     @Param('businessId', ParseUUIDPipe) businessId: string,

@@ -1,5 +1,5 @@
 // src/users/dto/update-profile.dto.ts
-import { IsString, IsOptional, IsEmail, MinLength, MaxLength, IsIn } from 'class-validator';
+import { IsString, IsOptional, MinLength, MaxLength, IsIn } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()

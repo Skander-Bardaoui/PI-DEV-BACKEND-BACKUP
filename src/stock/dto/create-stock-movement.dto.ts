@@ -21,6 +21,10 @@ export class CreateStockMovementDto {
   source_id?: string;
 
   @IsOptional()
+  @IsUUID()
+  warehouse_id?: string;
+
+  @IsOptional()
   @IsString()
   note?: string;
 }

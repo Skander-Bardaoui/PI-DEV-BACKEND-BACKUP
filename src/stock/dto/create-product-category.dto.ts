@@ -19,4 +19,10 @@ export class CreateProductCategoryDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  // ==================== Alaa change for service type ====================
+  @IsOptional()
+  @IsString()
+  category_type?: string; // 'PRODUCT' or 'SERVICE', defaults to 'PRODUCT'
+  // ====================================================================
 }

@@ -5,4 +5,5 @@ export enum InvoiceStatus {
   PAID           = 'PAID',           // intégralement payée
   OVERDUE        = 'OVERDUE',        // échéance dépassée, non payée
   DISPUTED       = 'DISPUTED',       // litige en cours avec le fournisseur
+  CANCELLED      = 'CANCELLED',      // facture annulée
 }

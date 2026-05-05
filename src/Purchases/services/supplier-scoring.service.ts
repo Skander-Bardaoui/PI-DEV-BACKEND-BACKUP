@@ -373,6 +373,9 @@ export class SupplierScoringService {
       : 100;
 
     // Délai moyen de paiement (invoice_date → payment_date)
+    // IMPORTANT: Dans le module ACHATS, c'est VOUS qui payez le fournisseur
+    // Un délai court = bon (vous payez rapidement)
+    // Un délai long = mauvais (vous êtes en retard)
     let avg_payment_days = 0;
     if (payments.length > 0) {
       const pairedPayments = payments.filter(p => p.purchase_invoice_id);
@@ -389,13 +392,14 @@ export class SupplierScoringService {
     }
 
     // Score basé sur le taux de paiement ET le délai
+    // Plus vous payez bien et rapidement, meilleur est le score
     let score = payment_rate_pct >= 100 ? 100
               : payment_rate_pct >= 90  ? 80
               : payment_rate_pct >= 75  ? 60
               : payment_rate_pct >= 50  ? 40
               : 20;
 
-    // Bonus si paiement rapide (< délai convenu)
+    // Bonus si VOUS payez rapidement (< 30 jours)
     if (avg_payment_days > 0 && avg_payment_days <= 30) score = Math.min(100, score + 10);
 
     if (total_invoiced === 0) score = 50;
@@ -404,12 +408,12 @@ export class SupplierScoringService {
 
     return [
       {
-        name:    'Historique paiements',
+        name:    'Vos paiements fournisseur',
         score,
         weight:  15,
         weighted,
-        label:   `${payment_rate_pct}% payé`,
-        detail:  `${total_paid.toFixed(3)} / ${total_invoiced.toFixed(3)} TND réglé`,
+        label:   `${payment_rate_pct}% payé par vous`,
+        detail:  `Vous avez payé ${total_paid.toFixed(3)} / ${total_invoiced.toFixed(3)} TND`,
       },
       { total_invoiced, total_paid, payment_rate_pct, avg_payment_days },
     ];

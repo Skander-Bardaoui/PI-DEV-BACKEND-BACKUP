@@ -12,11 +12,11 @@ export class SalesOrderItem {
   @Column()
   salesOrderId: string;
 
-  @ManyToOne(() => Product, (product) => product.salesOrderItems, { nullable: true })
+  @ManyToOne(() => Product, (product) => product.salesOrderItems, { nullable: false })
   @JoinColumn({ name: 'productId' })
   product: Product;
 
-  @Column({ nullable: true })
+  @Column({ nullable: false })
   productId: string;
 
   @Column()

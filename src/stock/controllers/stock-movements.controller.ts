@@ -58,6 +58,16 @@ export class StockMovementsController {
     };
   }
 
+  // Archive routes must come BEFORE :id route to avoid UUID parsing issues
+  @Get('archived')
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  async getArchived(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+  ) {
+    const movements = await this.movementsService.findArchived(businessId);
+    return movements.map(m => this.transformMovement(m));
+  }
+
   @Get(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
   async findOne(
@@ -69,7 +79,7 @@ export class StockMovementsController {
   }
 
   @Post('manual')
-  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
   async createManual(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Body() dto: CreateStockMovementDto,
@@ -79,11 +89,20 @@ export class StockMovementsController {
   }
 
   @Delete(':id')
-  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT, Role.TEAM_MEMBER)
   remove(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.movementsService.remove(businessId, id);
+  }
+
+  @Post(':id/restore')
+  @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN)
+  async restore(
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.movementsService.restore(businessId, id);
   }
 }

@@ -10,6 +10,7 @@ export interface EmailDraftParams {
   dueDate: string;
   isReminder: boolean;
   language?: 'fr' | 'ar';
+  businessName?: string;
 }
 
 export interface EmailDraftResult {
@@ -57,11 +58,14 @@ Rédige un email professionnel en ${lang} pour un ${type}.
 Ton: professionnel mais chaleureux. Longueur: 3-4 phrases max.
 
 Informations:
+- Entreprise: ${params.businessName || 'Votre Entreprise'}
 - Client: ${params.clientName}
 - Facture n°: ${params.invoiceNumber}
 - Montant: ${params.amount.toFixed(3)} TND
 - Échéance: ${params.dueDate}
 - Type: ${params.isReminder ? 'RAPPEL — facture en retard' : 'PREMIER ENVOI'}
+
+IMPORTANT: Signe l'email avec le nom de l'entreprise "${params.businessName || 'Votre Entreprise'}" à la fin.
 
 Retourne UNIQUEMENT ce JSON (sans backticks):
 {
@@ -89,18 +93,19 @@ Retourne UNIQUEMENT ce JSON (sans backticks):
 
   private getFallbackEmailDraft(params: EmailDraftParams): EmailDraftResult {
     const lang = params.language === 'ar' ? 'ar' : 'fr';
+    const businessName = params.businessName || 'Votre Entreprise';
     
     if (params.isReminder) {
       // Reminder email
       if (lang === 'ar') {
         return {
           subject: `تذكير بالدفع - فاتورة ${params.invoiceNumber}`,
-          body: `السيد/السيدة ${params.clientName}،\n\nنود تذكيركم بأن الفاتورة رقم ${params.invoiceNumber} بمبلغ ${params.amount.toFixed(3)} دينار تونسي لم يتم دفعها بعد. تاريخ الاستحقاق كان ${params.dueDate}.\n\nنرجو منكم تسوية هذا المبلغ في أقرب وقت ممكن.\n\nمع خالص الشكر والتقدير.`,
+          body: `السيد/السيدة ${params.clientName}،\n\nنود تذكيركم بأن الفاتورة رقم ${params.invoiceNumber} بمبلغ ${params.amount.toFixed(3)} دينار تونسي لم يتم دفعها بعد. تاريخ الاستحقاق كان ${params.dueDate}.\n\nنرجو منكم تسوية هذا المبلغ في أقرب وقت ممكن.\n\nمع خالص الشكر والتقدير،\n${businessName}`,
         };
       } else {
         return {
           subject: `Rappel de paiement - Facture ${params.invoiceNumber}`,
-          body: `Bonjour ${params.clientName},\n\nNous vous rappelons que la facture n° ${params.invoiceNumber} d'un montant de ${params.amount.toFixed(3)} TND n'a pas encore été réglée. La date d'échéance était le ${params.dueDate}.\n\nNous vous remercions de bien vouloir régulariser cette situation dans les meilleurs délais.\n\nCordialement.`,
+          body: `Bonjour ${params.clientName},\n\nNous vous rappelons que la facture n° ${params.invoiceNumber} d'un montant de ${params.amount.toFixed(3)} TND n'a pas encore été réglée. La date d'échéance était le ${params.dueDate}.\n\nNous vous remercions de bien vouloir régulariser cette situation dans les meilleurs délais.\n\nCordialement,\n${businessName}`,
         };
       }
     } else {
@@ -108,12 +113,12 @@ Retourne UNIQUEMENT ce JSON (sans backticks):
       if (lang === 'ar') {
         return {
           subject: `فاتورة ${params.invoiceNumber} - ${params.clientName}`,
-          body: `السيد/السيدة ${params.clientName}،\n\nيسرنا أن نرسل لكم الفاتورة رقم ${params.invoiceNumber} بمبلغ ${params.amount.toFixed(3)} دينار تونسي. تاريخ الاستحقاق هو ${params.dueDate}.\n\nستجدون الفاتورة مرفقة بهذا البريد الإلكتروني.\n\nمع خالص الشكر والتقدير.`,
+          body: `السيد/السيدة ${params.clientName}،\n\nيسرنا أن نرسل لكم الفاتورة رقم ${params.invoiceNumber} بمبلغ ${params.amount.toFixed(3)} دينار تونسي. تاريخ الاستحقاق هو ${params.dueDate}.\n\nستجدون الفاتورة مرفقة بهذا البريد الإلكتروني.\n\nمع خالص الشكر والتقدير،\n${businessName}`,
         };
       } else {
         return {
           subject: `Facture ${params.invoiceNumber} - ${params.clientName}`,
-          body: `Bonjour ${params.clientName},\n\nVeuillez trouver ci-joint la facture n° ${params.invoiceNumber} d'un montant de ${params.amount.toFixed(3)} TND. La date d'échéance est fixée au ${params.dueDate}.\n\nNous restons à votre disposition pour toute question.\n\nCordialement.`,
+          body: `Bonjour ${params.clientName},\n\nVeuillez trouver ci-joint la facture n° ${params.invoiceNumber} d'un montant de ${params.amount.toFixed(3)} TND. La date d'échéance est fixée au ${params.dueDate}.\n\nNous restons à votre disposition pour toute question.\n\nCordialement,\n${businessName}`,
         };
       }
     }

@@ -19,14 +19,17 @@ import { Roles } from '../../auth/decorators/roles.decorators';
 import { Role } from '../../users/enums/role.enum';
 import { CreateSalesOrderDto } from '../dto/create-sales-order.dto';
 import { UpdateSalesOrderDto } from '../dto/update-sales-order.dto';
+import { SalesPermissionGuard } from '../guards/sales-permission.guard';
+import { RequireSalesPermission } from '../decorators/sales-permission.decorator';
 
 @Controller('businesses/:businessId/sales-orders')
-@UseGuards(AuthGuard('jwt'), RolesGuard)
+@UseGuards(AuthGuard('jwt'), RolesGuard, SalesPermissionGuard)
 export class SalesOrdersController {
   constructor(private readonly service: SalesOrdersService) {}
 
   @Post()
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('create_order')
   @HttpCode(HttpStatus.CREATED)
   create(
     @Param('businessId', ParseUUIDPipe) businessId: string,
@@ -55,6 +58,7 @@ export class SalesOrdersController {
 
   @Patch(':id')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_order')
   update(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -65,6 +69,7 @@ export class SalesOrdersController {
 
   @Post(':id/start-progress')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_order')
   startProgress(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -74,6 +79,7 @@ export class SalesOrdersController {
 
   @Post(':id/mark-delivered')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_order')
   markDelivered(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -83,6 +89,7 @@ export class SalesOrdersController {
 
   @Post(':id/mark-invoiced')
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
+  @RequireSalesPermission('update_order')
   markInvoiced(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,
@@ -92,6 +99,7 @@ export class SalesOrdersController {
 
   @Post(':id/cancel')
   @Roles(Role.BUSINESS_OWNER)
+  @RequireSalesPermission('cancel_order')
   cancel(
     @Param('businessId', ParseUUIDPipe) businessId: string,
     @Param('id', ParseUUIDPipe) id: string,

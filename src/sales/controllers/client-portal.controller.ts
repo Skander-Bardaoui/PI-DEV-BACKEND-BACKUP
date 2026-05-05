@@ -34,4 +34,13 @@ export class ClientPortalController {
   ) {
     return this.service.refuseOrder(token, reason);
   }
+
+  @Post('create-recurring')
+  @HttpCode(HttpStatus.OK)
+  createRecurringFromOrder(
+    @Body('token') token: string,
+    @Body('frequency') frequency: string,
+  ) {
+    return this.service.createRecurringFromOrder(token, frequency);
+  }
 }

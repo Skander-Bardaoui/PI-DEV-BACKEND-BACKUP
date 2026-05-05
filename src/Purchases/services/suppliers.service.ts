@@ -2,12 +2,18 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CreateSupplierDto } from '../../Purchases/dto/create-supplier.dto';
 import { QuerySuppliersDto, UpdateSupplierDto } from '../../Purchases/dto/update-supplier.dto';
 import { Supplier } from '../../Purchases/entities/supplier.entity';
-import { Repository, ILike } from 'typeorm';
+import { SupplierPO } from '../../Purchases/entities/supplier-po.entity';
+import { PurchaseInvoice } from '../../Purchases/entities/purchase-invoice.entity';
+import { GoodsReceipt } from '../../Purchases/entities/goods-receipt.entity';
+import { POStatus } from '../../Purchases/enum/po-status.enum';
+import { InvoiceStatus } from '../../Purchases/enum/invoice-status.enum';
+import { Repository, ILike, In } from 'typeorm';
 
 
 @Injectable()
@@ -16,6 +22,12 @@ export class SuppliersService {
   constructor(
     @InjectRepository(Supplier)
     private readonly repo: Repository<Supplier>,
+    @InjectRepository(SupplierPO)
+    private readonly supplierPORepo: Repository<SupplierPO>,
+    @InjectRepository(PurchaseInvoice)
+    private readonly invoiceRepo: Repository<PurchaseInvoice>,
+    @InjectRepository(GoodsReceipt)
+    private readonly goodsReceiptRepo: Repository<GoodsReceipt>,
   ) {}
 
   // ─────────────────────────────────────────────────────────────
@@ -137,9 +149,71 @@ const isActive = query.is_active; // peut être true, false, ou undefined
       throw new ConflictException('Ce fournisseur est déjà archivé.');
     }
 
+    // ── Validation 1: Vérifier les BCs en cours ──────────────────
+    const activePOStatuses = [
+      POStatus.DRAFT,
+      POStatus.SENT,
+      POStatus.CONFIRMED,
+      POStatus.PARTIALLY_RECEIVED,
+    ];
+
+    const activePOsCount = await this.supplierPORepo.count({
+      where: {
+        business_id: businessId,
+        supplier_id: id,
+        status: In(activePOStatuses),
+      },
+    });
+
+    if (activePOsCount > 0) {
+      throw new BadRequestException(
+        `Impossible d'archiver ce fournisseur : ${activePOsCount} bon(s) de commande en cours (DRAFT, SENT, CONFIRMED ou PARTIALLY_RECEIVED). Veuillez d'abord finaliser ou annuler ces commandes.`,
+      );
+    }
+
+    // ── Validation 2: Vérifier les factures impayées ─────────────
+    const unpaidInvoiceStatuses = [
+      InvoiceStatus.PENDING,
+      InvoiceStatus.APPROVED,
+      InvoiceStatus.PARTIALLY_PAID,
+      InvoiceStatus.OVERDUE,
+      InvoiceStatus.DISPUTED,
+    ];
+
+    const unpaidInvoicesCount = await this.invoiceRepo.count({
+      where: {
+        business_id: businessId,
+        supplier_id: id,
+        status: In(unpaidInvoiceStatuses),
+      },
+    });
+
+    if (unpaidInvoicesCount > 0) {
+      throw new BadRequestException(
+        `Impossible d'archiver ce fournisseur : ${unpaidInvoicesCount} facture(s) impayée(s). Veuillez d'abord régler ou annuler ces factures.`,
+      );
+    }
+
+    // ── Validation 3: Vérifier les réceptions incomplètes ────────
+    // Une réception est considérée incomplète si le BC associé est PARTIALLY_RECEIVED
+    const incompleteReceiptsCount = await this.goodsReceiptRepo
+      .createQueryBuilder('gr')
+      .innerJoin('gr.supplier_po', 'po')
+      .where('gr.business_id = :businessId', { businessId })
+      .andWhere('gr.supplier_id = :supplierId', { supplierId: id })
+      .andWhere('po.status = :status', { status: POStatus.PARTIALLY_RECEIVED })
+      .getCount();
+
+    if (incompleteReceiptsCount > 0) {
+      throw new BadRequestException(
+        `Impossible d'archiver ce fournisseur : ${incompleteReceiptsCount} bon(s) de réception incomplet(s). Veuillez d'abord finaliser toutes les réceptions.`,
+      );
+    }
+
+    // ── Toutes les validations passées, archivage autorisé ───────
     supplier.is_active = false;
     await this.repo.save(supplier);
-    return { message: `Fournisseur "${supplier.name}" archivé.` };
+    return { message: `Fournisseur "${supplier.name}" archivé avec succès.` };
   }
 
   // ─────────────────────────────────────────────────────────────

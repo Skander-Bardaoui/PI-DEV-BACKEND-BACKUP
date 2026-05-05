@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn, UpdateDateColumn, JoinColumn, Index } from 'typeorm';
 import { Business } from '../../businesses/entities/business.entity';
-import { Client } from '../../clients/entities/client.entity';
+import { Client } from '../entities/client.entity';
 import { QuoteItem } from './quote-item.entity';
 import { SalesOrder } from './sales-order.entity';
 import { Invoice } from './invoice.entity';

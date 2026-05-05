@@ -6,9 +6,10 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  BeforeUpdate,
 } from 'typeorm';
 import { Business } from '../../businesses/entities/business.entity';
-import { Client } from '../../clients/entities/client.entity';
+import { Client } from '../entities/client.entity';
 
 export enum RecurringFrequency {
   DAILY = 'DAILY',
@@ -16,6 +17,17 @@ export enum RecurringFrequency {
   MONTHLY = 'MONTHLY',
   QUARTERLY = 'QUARTERLY',
   YEARLY = 'YEARLY',
+}
+
+export enum RecurringInvoiceStatus {
+  ACTIVE = 'ACTIVE',
+  PAUSED = 'PAUSED',
+  INACTIVE = 'INACTIVE',
+}
+
+export enum DiscountType {
+  PERCENTAGE = 'PERCENTAGE',
+  FIXED = 'FIXED',
 }
 
 @Entity('recurring_invoices')
@@ -62,6 +74,15 @@ export class RecurringInvoice {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  @Column({ type: 'varchar', length: 20, default: 'ACTIVE' })
+  status: RecurringInvoiceStatus;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  discount_type: DiscountType | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 3, nullable: true })
+  discount_value: number | null;
+
   @Column({ type: 'int', default: 0 })
   invoices_generated: number;
 
@@ -78,4 +99,10 @@ export class RecurringInvoice {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @BeforeUpdate()
+  syncIsActiveWithStatus() {
+    // Synchroniser is_active avec status pour compatibilité descendante
+    this.is_active = this.status === RecurringInvoiceStatus.ACTIVE;
+  }
 }

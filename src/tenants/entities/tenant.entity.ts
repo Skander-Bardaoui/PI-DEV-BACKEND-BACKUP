@@ -6,7 +6,11 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
+  DeleteDateColumn,
 } from 'typeorm';
+import { User } from '../../users/entities/user.entity';
 
 export enum TenantStatus {
   ACTIVE = 'active',
@@ -35,8 +39,12 @@ export class Tenant {
   })
   status: TenantStatus;
 
-  @Column()
+  @Column({ nullable: true })
   ownerId: string; // References a User (BUSINESS_OWNER)
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'ownerId' })
+  owner: User;
 
   @Column({ nullable: true })
   billingPlan: string; // e.g., "free", "pro", "enterprise"
@@ -49,6 +57,9 @@ export class Tenant {
 
   @Column({ type: 'text', nullable: true })
   description: string;
+
+  @DeleteDateColumn({ nullable: true })
+  deleted_at?: Date;
 
   @CreateDateColumn()
   createdAt: Date;

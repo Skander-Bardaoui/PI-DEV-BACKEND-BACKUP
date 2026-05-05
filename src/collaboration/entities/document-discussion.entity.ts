@@ -14,8 +14,8 @@ import { Tenant } from '../../tenants/entities/tenant.entity';
 import { Business } from '../../businesses/entities/business.entity';
 import { Quote } from '../../sales/entities/quote.entity';
 import { SalesOrder } from '../../sales/entities/sales-order.entity';
-import { SupplierPO } from 'src/Purchases/entities/supplier-po.entity';
-import { PurchaseInvoice } from 'src/Purchases/entities/purchase-invoice.entity';
+import { SupplierPO } from '../../Purchases/entities/supplier-po.entity';
+import { PurchaseInvoice } from '../../Purchases/entities/purchase-invoice.entity';
 
 export enum DocumentType {
   QUOTE = 'QUOTE',

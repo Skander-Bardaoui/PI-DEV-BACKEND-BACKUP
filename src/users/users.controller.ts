@@ -40,6 +40,7 @@ export class UsersController {
     if (!user) {
       throw new BadRequestException('User not found');
     }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash, ...safeUser } = user;
     return safeUser;
   }
@@ -48,6 +49,7 @@ export class UsersController {
   @Patch('me')
   async updateMyProfile(@Request() req, @Body() dto: UpdateProfileDto) {
     const updated = await this.usersService.updateProfile(req.user.id, dto);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash, ...safeUser } = updated;
     return safeUser;
   }
@@ -114,6 +116,7 @@ export class UsersController {
       return { message: 'User not found' };
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash, ...safeUser } = user;
     return safeUser;
   }
@@ -124,6 +127,7 @@ export class UsersController {
   @Roles(Role.PLATFORM_ADMIN)
   async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     const updated = await this.usersService.updateUser(id, dto);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash, ...safeUser } = updated;
     return safeUser;
   }
@@ -144,6 +148,7 @@ export class UsersController {
   @Roles(Role.PLATFORM_ADMIN)
   async changeRole(@Param('id') id: string, @Body() dto: ChangeRoleDto) {
     const updated = await this.usersService.updateRole(id, dto.role);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { password_hash, ...safeUser } = updated;
     return safeUser;
   }

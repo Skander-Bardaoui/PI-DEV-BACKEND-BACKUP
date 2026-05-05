@@ -9,7 +9,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { Client } from '../../clients/entities/client.entity';
+import { Client } from '../../sales/entities/client.entity';
 import { Business } from '../../businesses/entities/business.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 

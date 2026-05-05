@@ -41,10 +41,21 @@ export class SalesDashboardAiService {
       this.logger.warn('GEMINI_API_KEY non configurée — prévisions AI désactivées');
       this.model = null;
     } else {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      // Utiliser gemini-2.5-flash (version stable et largement disponible)
-      this.model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
-      this.logger.log('Service dashboard AI initialisé avec succès (gemini-2.5-flash)');
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        // Utiliser gemini-1.5-flash (plus stable et moins de surcharge que 2.5)
+        this.model = genAI.getGenerativeModel({ 
+          model: 'gemini-2.5-flash',
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2048,
+          },
+        });
+        this.logger.log('Service dashboard AI initialisé avec succès (gemini-1.5-flash)');
+      } catch (error: any) {
+        this.logger.error(`Erreur lors de l'initialisation de Gemini: ${error.message}`);
+        this.model = null;
+      }
     }
   }
 
@@ -151,15 +162,47 @@ Données: ${JSON.stringify(context, null, 2)}
     `;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(text);
+      // Retry logic avec backoff exponentiel
+      let lastError: Error | null = null;
+      const maxRetries = 2;
       
-      this.logger.log(`Prévision AI générée - Revenue prédit: ${parsed.predictedRevenue} DT`);
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            // Attendre avant de réessayer (1s, 2s)
+            const delay = Math.pow(2, attempt - 1) * 1000;
+            this.logger.log(`Tentative ${attempt + 1}/${maxRetries + 1} après ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          const result = await this.model.generateContent(prompt);
+          const text = result.response.text().replace(/```json|```/g, '').trim();
+          const parsed = JSON.parse(text);
+          
+          this.logger.log(`Prévision AI générée - Revenue prédit: ${parsed.predictedRevenue} DT`);
+          
+          return parsed;
+        } catch (err: any) {
+          lastError = err;
+          
+          // Si c'est une erreur 503 (service surchargé), on réessaye
+          if (err.message?.includes('503') || err.message?.includes('high demand')) {
+            this.logger.warn(`Gemini API surchargée (tentative ${attempt + 1}/${maxRetries + 1})`);
+            if (attempt < maxRetries) continue;
+          }
+          
+          // Pour les autres erreurs, on arrête immédiatement
+          break;
+        }
+      }
       
-      return parsed;
+      // Si toutes les tentatives ont échoué
+      this.logger.error(`Erreur lors de la génération de prévision AI après ${maxRetries + 1} tentatives: ${lastError?.message}`);
+      this.logger.log('Utilisation du mode de prévision de secours (calcul statistique)');
+      return this.generateFallbackForecast(context, recurringMonthly, avgMonthlyRevenue, openQuotesTotal, openQuotes.length);
+      
     } catch (error: any) {
-      this.logger.error(`Erreur lors de la génération de prévision AI: ${error.message}`);
+      this.logger.error(`Erreur inattendue lors de la génération de prévision AI: ${error.message}`);
       return this.generateFallbackForecast(context, recurringMonthly, avgMonthlyRevenue, openQuotesTotal, openQuotes.length);
     }
   }

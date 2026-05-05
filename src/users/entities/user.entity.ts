@@ -54,6 +54,9 @@ export class User {
   @Column({ default: 'Africa/Tunis' })
   timezone!: string;
 
+  @Column({ nullable: true, default: '#4F46E5' })
+  messageColor?: string; // User's preferred message color for chat
+
   @CreateDateColumn()
   created_at!: Date;
 

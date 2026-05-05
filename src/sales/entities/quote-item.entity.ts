@@ -12,11 +12,11 @@ export class QuoteItem {
   @Column()
   quoteId: string;
 
-  @ManyToOne(() => Product, (product) => product.quoteItems, { nullable: true })
+  @ManyToOne(() => Product, (product) => product.quoteItems, { nullable: false })
   @JoinColumn({ name: 'productId' })
   product: Product;
 
-  @Column({ nullable: true })
+  @Column({ nullable: false })
   productId: string;
 
   @Column()

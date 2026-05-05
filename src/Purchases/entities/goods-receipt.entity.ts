@@ -49,6 +49,11 @@
       @Column({ type: 'text', nullable: true })
       notes: string | null;
 
+      // ── Statut de facturation ─────────────────────────────────────
+      // Indique si ce bon de réception a déjà été facturé
+      @Column({ type: 'boolean', default: false })
+      is_invoiced: boolean;
+
       // ── Utilisateur qui a validé la réception ─────────────────────
       // Lien vers User (même module Auth) — eager:false pour performance
       @Column({ type: 'uuid' })

@@ -30,4 +30,8 @@ export class CreateMessageDto {
   @IsString()
   @IsOptional()
   messageColor?: string; // User's chosen color
+
+  @IsUUID()
+  @IsOptional()
+  parentMessageId?: string; // For threaded replies
 }

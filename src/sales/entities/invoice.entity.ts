@@ -11,7 +11,7 @@ import {
   Index,
 } from 'typeorm';
 import { Business } from '../../businesses/entities/business.entity';
-import { Client } from '../../clients/entities/client.entity';
+import { Client } from '../entities/client.entity';
 import { SalesOrder } from './sales-order.entity';
 import { InvoiceItem } from './invoice-item.entity';
 import { Quote } from './quote.entity';
@@ -78,6 +78,13 @@ export class Invoice {
 
   @Column({ type: 'uuid', nullable: true })
   sales_order_id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  recurring_invoice_id: string | null;
+
+  @ManyToOne(() => require('./recurring-invoice.entity').RecurringInvoice, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'recurring_invoice_id' })
+  recurringInvoice: any;
 
   @ManyToOne(() => SalesOrder, { nullable: true })
   @JoinColumn({ name: 'sales_order_id' })

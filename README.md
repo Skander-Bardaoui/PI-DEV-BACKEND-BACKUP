@@ -1,98 +1,250 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# PI-DEV Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Enterprise-grade ERP backend built with NestJS, TypeScript, and PostgreSQL. This API powers a comprehensive business management system with modules for sales, purchases, inventory, collaboration, and more.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 🚀 Features
 
-## Description
+### Core Modules
+- **Authentication & Authorization** - JWT-based auth with role-based access control
+- **Multi-tenancy** - Business/tenant isolation with secure data segregation
+- **Sales Management** - Invoices, quotes, sales orders, delivery notes, recurring invoices
+- **Purchase Management** - Supplier management, purchase orders, goods receipts, 3-way matching
+- **Inventory & Stock** - Warehouse management, stock movements, product tracking
+- **Treasury & Payments** - Account management, payments, transfers, transactions
+- **Collaboration** - Tasks, subtasks, comments, notifications, team management
+- **Client Portal** - Secure client access with token-based authentication
+- **Supplier Portal** - Supplier onboarding and order management
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### AI-Powered Features
+- **OCR Processing** - Automatic invoice/document data extraction
+- **AI Email Generation** - Smart email drafting for invoices and quotes
+- **3-Way Matching AI** - Intelligent PO/GR/Invoice reconciliation
+- **Supplier Scoring** - AI-based supplier performance analysis
+- **Subtask Generation** - Automatic task breakdown using AI
 
-## Project setup
+### Technical Features
+- WebSocket support for real-time updates
+- Email notifications with customizable templates
+- PDF generation for documents
+- File upload handling
+- Database migrations
+- Comprehensive error handling
+- Request validation with DTOs
+- API documentation ready
 
+## 📋 Prerequisites
+
+- Node.js >= 18.x
+- PostgreSQL >= 14.x
+- npm or yarn
+- Gmail account (for email features)
+
+## 🛠️ Installation
+
+1. Clone the repository
 ```bash
-$ npm install
+git clone <repository-url>
+cd PI-DEV-BACKEND
 ```
 
-## Compile and run the project
-
+2. Install dependencies
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm install
 ```
 
-## Run tests
-
+3. Configure environment variables
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.example .env
 ```
 
-## Deployment
+Edit `.env` with your configuration:
+```env
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
+DB_NAME=pi_dev_db
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+# JWT
+JWT_SECRET=your_jwt_secret_key
+JWT_EXPIRES_IN=7d
+REFRESH_TOKEN_SECRET=your_refresh_token_secret
+REFRESH_TOKEN_EXPIRES_IN=30d
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+# Email (Gmail)
+GMAIL_USER=your_email@gmail.com
+GMAIL_PASS=your_app_password
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Frontend URL
+FRONTEND_URL=http://localhost:5173
+
+# AI Services (Optional)
+GROQ_API_KEY=your_groq_api_key
+OPENAI_API_KEY=your_openai_api_key
+
+# Server
+PORT=3001
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+4. Run database migrations
+```bash
+npm run migration:run
+```
 
-## Resources
+## 🚀 Running the Application
 
-Check out a few resources that may come in handy when working with NestJS:
+### Development Mode
+```bash
+npm run start:dev
+```
+Server runs on `http://localhost:3001`
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Production Mode
+```bash
+npm run build
+npm run start:prod
+```
 
-## Support
+### Watch Mode
+```bash
+npm run start
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+## 🧪 Testing
 
-## Stay in touch
+```bash
+# Unit tests
+npm run test
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+# E2E tests
+npm run test:e2e
 
-## License
+# Test coverage
+npm run test:cov
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## 📁 Project Structure
+
+```
+src/
+├── auth/              # Authentication & authorization
+├── businesses/        # Business/tenant management
+├── users/            # User management
+├── clients/          # Client management
+├── sales/            # Sales module (invoices, quotes, orders)
+├── Purchases/        # Purchase module (suppliers, POs, receipts)
+├── stock/            # Inventory & warehouse management
+├── payments/         # Treasury & payment management
+├── collaboration/    # Tasks, comments, notifications
+├── messages/         # Real-time messaging
+├── subtasks/         # Task breakdown management
+├── email/            # Email service
+├── common/           # Shared utilities
+└── migrations/       # Database migrations
+```
+
+## 🔑 Key API Endpoints
+
+### Authentication
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User login
+- `POST /auth/refresh` - Refresh access token
+- `GET /auth/profile` - Get user profile
+
+### Sales
+- `GET /sales/invoices` - List invoices
+- `POST /sales/invoices` - Create invoice
+- `POST /sales/invoices/:id/send` - Send invoice by email
+- `GET /sales/quotes` - List quotes
+- `POST /sales/quotes` - Create quote
+
+### Purchases
+- `GET /purchases/suppliers` - List suppliers
+- `POST /purchases/supplier-pos` - Create purchase order
+- `POST /purchases/goods-receipts` - Create goods receipt
+- `POST /purchases/three-way-matching` - Perform 3-way matching
+
+### Collaboration
+- `GET /tasks` - List tasks
+- `POST /tasks` - Create task
+- `POST /subtasks/generate` - AI-generate subtasks
+
+## 🐳 Docker Deployment
+
+```bash
+# Build image
+docker build -t pi-dev-backend .
+
+# Run container
+docker run -p 3001:3001 --env-file .env pi-dev-backend
+```
+
+## ☸️ Kubernetes Deployment
+
+```bash
+# Apply configurations
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/secret.yaml
+kubectl apply -f k8s/pvc.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+```
+
+## 📚 Documentation
+
+Additional documentation available in `/docs`:
+- `AI_SUBTASK_GENERATION.md` - AI subtask generation guide
+- `RAPPROCHEMENT_3_VOIES_IA.md` - 3-way matching documentation
+- `COLLABORATION_COMPLETE.md` - Collaboration features
+- `WAREHOUSE_FEATURE.md` - Warehouse management
+- And more...
+
+## 🔧 Database Migrations
+
+```bash
+# Generate migration
+npm run migration:generate -- src/migrations/MigrationName
+
+# Run migrations
+npm run migration:run
+
+# Revert migration
+npm run migration:revert
+```
+
+## 🌐 Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DB_HOST` | PostgreSQL host | Yes |
+| `DB_PORT` | PostgreSQL port | Yes |
+| `DB_USERNAME` | Database username | Yes |
+| `DB_PASSWORD` | Database password | Yes |
+| `DB_NAME` | Database name | Yes |
+| `JWT_SECRET` | JWT secret key | Yes |
+| `GMAIL_USER` | Gmail account for emails | Yes |
+| `GMAIL_PASS` | Gmail app password | Yes |
+| `FRONTEND_URL` | Frontend application URL | Yes |
+| `GROQ_API_KEY` | Groq AI API key | No |
+| `OPENAI_API_KEY` | OpenAI API key | No |
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is proprietary and confidential.
+
+## 👥 Support
+
+For support and questions, contact the development team.
+
+---
+
+Built with ❤️ using [NestJS](https://nestjs.com/)

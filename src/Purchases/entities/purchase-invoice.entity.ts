@@ -22,10 +22,14 @@ export class PurchaseInvoice {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Numéro figurant sur la facture PAPIER reçue du fournisseur
+  // Numéro interne auto-généré par notre système : FACT-2026-0001
+  @Column({ type: 'varchar', length: 50 })
+  invoice_number: string;
+
+  // Numéro figurant sur la facture PAPIER reçue du fournisseur (optionnel)
   // Ce n'est PAS un numéro généré par notre système
-  @Column({ type: 'varchar', length: 100 })
-  invoice_number_supplier: string;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  invoice_number_supplier: string | null;
 
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.PENDING })
   status: InvoiceStatus;
@@ -63,6 +67,11 @@ export class PurchaseInvoice {
   })
   @JoinColumn({ name: 'supplier_po_id' })
   supplier_po: SupplierPO | null;
+
+  // ── Lien optionnel vers le BR d'origine ───────────────────────
+  // Permet de savoir quelle réception spécifique a été facturée
+  @Column({ type: 'uuid', nullable: true })
+  goods_receipt_id: string | null;
 
   // ── Dates ─────────────────────────────────────────────────────
   @Column({ type: 'date' })

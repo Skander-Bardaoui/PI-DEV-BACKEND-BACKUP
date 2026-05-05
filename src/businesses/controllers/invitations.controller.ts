@@ -18,6 +18,8 @@ import { InvitationsService } from '../services/invitations.service';
 import { Role } from '../../users/enums/role.enum';
 import { Roles } from '../../auth/decorators/roles.decorators';
 import { OwnerAndAdmin } from '../decorators/business-access.decorator';
+import { SendInvitationDto } from '../dto/send-invitation.dto';
+import { AcceptInvitationDto } from '../dto/accept-invitation.dto';
 
 @Controller('invitations')
 export class InvitationsController {
@@ -36,7 +38,7 @@ export class InvitationsController {
   @HttpCode(HttpStatus.OK)
   async acceptInvitation(
     @Param('token') token: string,
-    @Body() body: { firstName: string; lastName: string; phone?: string; password: string },
+    @Body() body: AcceptInvitationDto,
   ) {
     return this.invitationsService.acceptInvitationWithRegistration(
       token,
@@ -69,7 +71,7 @@ export class BusinessInvitationsController {
   @OwnerAndAdmin()
   async sendInvitation(
     @Param('businessId') businessId: string,
-    @Body() body: { email: string; role: Role },
+    @Body() body: SendInvitationDto,
     @Request() req,
   ) {
     return this.invitationsService.sendInvitation(

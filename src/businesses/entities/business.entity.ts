@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  DeleteDateColumn,
 } from 'typeorm';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 
@@ -47,6 +48,18 @@ export class Business {
 
   @Column({ type: 'json', nullable: true })
   address: object;
+
+  @Column({ default: false })
+  is_suspended: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  suspended_at?: Date;
+
+  @Column({ type: 'text', nullable: true })
+  suspension_reason?: string;
+
+  @DeleteDateColumn({ nullable: true })
+  deleted_at?: Date;
 
   @CreateDateColumn()
   created_at: Date;

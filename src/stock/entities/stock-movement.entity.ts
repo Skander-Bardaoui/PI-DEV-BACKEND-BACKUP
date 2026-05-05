@@ -4,7 +4,7 @@ import {
 } from 'typeorm';
 import { StockMovementType } from '../enums/stock-movement-type.enum';
 import { Product }   from './product.entity';
-import { Business }  from 'src/businesses/entities/business.entity';
+import { Business }  from '../../businesses/entities/business.entity';
  
 @Entity('stock_movements')
 // FIX : snake_case dans les index
@@ -64,10 +64,29 @@ export class StockMovement {
  
   @Column({ type: 'varchar', length: 100, nullable: true })
   location: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  warehouse_id: string | null;
+
+  @ManyToOne('Warehouse', 'stock_movements', { nullable: true, onDelete: 'SET NULL', eager: false })
+  @JoinColumn({ name: 'warehouse_id' })
+  warehouse: any;
  
-  // FIX : snake_case
+  // ==================== Audit Fields ====================
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  @Index()
+  deleted_at: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  deleted_by: string | null;
+
+  @ManyToOne('User', { nullable: true, eager: false })
+  @JoinColumn({ name: 'deleted_by' })
+  deleter: any;
+  // ======================================================
  
   @ManyToOne(() => Product, (product) => product.stock_movements, {
     onDelete: 'CASCADE',

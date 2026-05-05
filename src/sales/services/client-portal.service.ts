@@ -11,10 +11,11 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { ClientPortalToken } from '../entities/client-portal-token.entity';
 import { SalesOrder, SalesOrderStatus } from '../entities/sales-order.entity';
-import { Client } from '../../clients/entities/client.entity';
+import { Client } from '../entities/client.entity';
 import { Business } from '../../businesses/entities/business.entity';
 import { DeliveryNote } from '../entities/delivery-note.entity';
 import { DeliveryNoteItem } from '../entities/delivery-note-item.entity';
+import { RecurringInvoice, RecurringFrequency, RecurringInvoiceStatus } from '../entities/recurring-invoice.entity';
 
 @Injectable()
 export class ClientPortalService {
@@ -30,6 +31,9 @@ export class ClientPortalService {
 
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
+
+    @InjectRepository(RecurringInvoice)
+    private readonly recurringRepo: Repository<RecurringInvoice>,
 
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
@@ -144,8 +148,14 @@ export class ClientPortalService {
       );
 
       for (const item of orderItems) {
+        // Validate that productId is present
+        if (!item.productId) {
+          throw new Error(`Product ID is required for item: ${item.description}`);
+        }
+        
         const deliveryNoteItem = manager.create(DeliveryNoteItem, {
           deliveryNoteId: savedDeliveryNote.id,
+          productId: item.productId, // CRITICAL: Include productId from sales order item
           description: item.description,
           quantity: item.quantity,
           deliveredQuantity: 0,
@@ -184,5 +194,56 @@ export class ClientPortalService {
     await this.orderRepo.save(order);
 
     return order;
+  }
+
+  async createRecurringFromOrder(token: string, frequency: string): Promise<RecurringInvoice> {
+    const portalToken = await this.tokenRepo.findOne({
+      where: { token },
+      relations: ['salesOrder', 'salesOrder.items'],
+    });
+
+    if (!portalToken) throw new NotFoundException('Token invalide');
+    if (new Date() > portalToken.expires_at) throw new BadRequestException('Ce lien a expiré');
+
+    const order = portalToken.salesOrder;
+
+    // Validate frequency
+    const validFrequencies = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
+    if (!validFrequencies.includes(frequency)) {
+      throw new BadRequestException('Fréquence invalide');
+    }
+
+    // Calculate start date (next month for MONTHLY, next quarter for QUARTERLY, etc.)
+    const startDate = new Date();
+    if (frequency === 'MONTHLY') {
+      startDate.setMonth(startDate.getMonth() + 1);
+    } else if (frequency === 'QUARTERLY') {
+      startDate.setMonth(startDate.getMonth() + 3);
+    } else if (frequency === 'YEARLY') {
+      startDate.setFullYear(startDate.getFullYear() + 1);
+    } else if (frequency === 'WEEKLY') {
+      startDate.setDate(startDate.getDate() + 7);
+    } else if (frequency === 'DAILY') {
+      startDate.setDate(startDate.getDate() + 1);
+    }
+
+    // Create recurring invoice from order
+    const recurring = this.recurringRepo.create({
+      business_id: portalToken.business_id,
+      client_id: portalToken.client_id,
+      description: `Abonnement - ${order.items[0]?.description || 'Commande récurrente'}`,
+      frequency: frequency as RecurringFrequency,
+      amount: order.subtotal,
+      tax_rate: order.items[0]?.taxRate || 19,
+      start_date: startDate,
+      next_invoice_date: startDate,
+      status: RecurringInvoiceStatus.ACTIVE,
+      notes: `Créé depuis la commande ${order.orderNumber} par le client`,
+      invoices_generated: 0,
+    });
+
+    const saved = await this.recurringRepo.save(recurring);
+
+    return saved;
   }
 }

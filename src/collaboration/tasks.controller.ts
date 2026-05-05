@@ -27,8 +27,8 @@ export class TasksController {
 
   // ─── GET TASKS BY BUSINESS ─────────────────────
   @Get('business/:businessId')
-  findAll(@Param('businessId') businessId: string) {
-    return this.tasksService.getTasks(businessId);
+  findAll(@Param('businessId') businessId: string, @Request() req) {
+    return this.tasksService.getTasks(businessId, req.user.id);
   }
 
   // ─── UPDATE TASK ───────────────────────────────

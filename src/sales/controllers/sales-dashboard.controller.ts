@@ -14,6 +14,7 @@ import { Role } from '../../users/enums/role.enum';
 import { SalesDashboardService } from '../services/sales-dashboard.service';
 import { SalesDashboardAiService } from '../services/sales-dashboard-ai.service';
 import { SalesEmailAiService } from '../services/sales-email-ai.service';
+import { AiFeatureGuard } from '../../platform-admin/guards/ai-feature.guard';
 
 @Controller('businesses/:businessId/sales/dashboard')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -31,12 +32,14 @@ export class SalesDashboardController {
   }
 
   @Get('ai-forecast')
+  @UseGuards(AiFeatureGuard)
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
   async getAiForecast(@Param('businessId', ParseUUIDPipe) businessId: string) {
     return this.dashboardAiService.generateForecast(businessId);
   }
 
   @Post('generate-email-draft')
+  @UseGuards(AiFeatureGuard)
   @Roles(Role.BUSINESS_OWNER, Role.BUSINESS_ADMIN, Role.ACCOUNTANT)
   async generateEmailDraft(
     @Param('businessId', ParseUUIDPipe) businessId: string,
@@ -47,6 +50,7 @@ export class SalesDashboardController {
       dueDate: string;
       isReminder: boolean;
       language?: 'fr' | 'ar';
+      businessName?: string;
     },
   ) {
     return this.emailAiService.generateEmailDraft(params);

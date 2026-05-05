@@ -5,8 +5,8 @@ import {
   ManyToOne, JoinColumn,
 } from 'typeorm';
 import { Account }         from './account.entity';
-import { Supplier }        from 'src/Purchases/entities/supplier.entity';
-import { PurchaseInvoice } from 'src/Purchases/entities/purchase-invoice.entity';
+import { Supplier }        from '../../Purchases/entities/supplier.entity';
+import { PurchaseInvoice } from '../../Purchases/entities/purchase-invoice.entity';
 import { PaymentMethod }   from '../enums/payment-method.enum';
 
 @Entity('supplier_payments')

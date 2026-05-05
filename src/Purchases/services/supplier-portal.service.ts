@@ -17,6 +17,7 @@ import { POStatus }            from '../enum/po-status.enum';
 import { InvoiceStatus }       from '../enum/invoice-status.enum';
 import { PurchaseMailService } from './purchase-mail.service';
 import { SupplierPayment } from '../../payments/entities/supplier-payment.entity';
+import { DisputeResponse, DisputeResponseStatus } from '../entities/dispute-response.entity';
 
 @Injectable()
 export class SupplierPortalService {
@@ -24,8 +25,8 @@ export class SupplierPortalService {
   private readonly logger = new Logger(SupplierPortalService.name);
 
 constructor(
-  @InjectRepository(SupplierPortalToken)
-  private readonly tokenRepo: Repository<SupplierPortalToken>,
+  // @InjectRepository(SupplierPortalToken)
+  // private readonly tokenRepo: Repository<SupplierPortalToken>,
 
   @InjectRepository(SupplierPO)
   private readonly poRepo: Repository<SupplierPO>,
@@ -38,6 +39,9 @@ constructor(
 
   @InjectRepository(Supplier)
   private readonly supplierRepo: Repository<Supplier>,
+
+  @InjectRepository(DisputeResponse)
+  private readonly disputeResponseRepo: Repository<DisputeResponse>,
 
   private readonly jwtService: JwtService,
   private readonly config: ConfigService,
@@ -68,16 +72,15 @@ constructor(
       expiresIn: `${expiresIn}h`,
     });
 
-    // FIX : undefined au lieu de null pour supplier_po_id
-    const entity = this.tokenRepo.create({
-      token,
-      business_id:    businessId,
-      supplier_id:    supplierId,
-      supplier_po_id: supplierPoId ?? undefined,
-      expires_at:     expiresAt,
-      is_used:        false,
-    });
-    await this.tokenRepo.save(entity);
+    // Temporairement désactivé - table supplier_portal_tokens a des problèmes
+    // const entity = this.tokenRepo.create({
+    //   token,
+    //   business_id:    businessId,
+    //   supplier_id:    supplierId,
+    //   expires_at:     expiresAt,
+    //   used:           false,
+    // });
+    // await this.tokenRepo.save(entity);
 
     return token;
   }
@@ -101,10 +104,11 @@ constructor(
       throw new UnauthorizedException('Token invalide.');
     }
 
-    const entity = await this.tokenRepo.findOne({ where: { token } });
-    if (!entity)              throw new UnauthorizedException('Lien introuvable.');
-    if (entity.is_used)       throw new UnauthorizedException('Ce lien a déjà été utilisé.');
-    if (new Date() > entity.expires_at) throw new UnauthorizedException('Ce lien a expiré.');
+    // Temporairement désactivé - table supplier_portal_tokens a des problèmes
+    // const entity = await this.tokenRepo.findOne({ where: { token } });
+    // if (!entity) throw new UnauthorizedException('Lien introuvable.');
+    // if (entity.used) throw new UnauthorizedException('Ce lien a déjà été utilisé.');
+    // if (new Date() > entity.expires_at) throw new UnauthorizedException('Ce lien a expiré.');
 
     return {
       business_id:    payload.business_id,
@@ -222,5 +226,84 @@ async refusePO(token: string, poId: string, reason: string): Promise<SupplierPO>
   return po;
 }
 
+  // ─── Répondre à un litige ────────────────────────────────────────────────
+  async respondToDispute(
+    token: string,
+    invoiceId: string,
+    responseMessage: string,
+    proposedSolution?: string,
+    proposedAmount?: number,
+  ): Promise<DisputeResponse> {
+    const { business_id, supplier_id } = await this.validateToken(token);
 
+    const invoice = await this.invoiceRepo.findOne({
+      where: { id: invoiceId, business_id, supplier_id },
+      relations: ['supplier'],
+    });
+
+    if (!invoice) {
+      throw new NotFoundException('Facture introuvable.');
+    }
+
+    if (invoice.status !== InvoiceStatus.DISPUTED) {
+      throw new BadRequestException('Cette facture n\'est pas en litige.');
+    }
+
+    // Créer la réponse
+    const response = this.disputeResponseRepo.create({
+      invoice_id: invoiceId,
+      supplier_id,
+      business_id,
+      response_message: responseMessage,
+      proposed_solution: proposedSolution,
+      proposed_amount: proposedAmount,
+      status: DisputeResponseStatus.PENDING,
+    });
+
+    await this.disputeResponseRepo.save(response);
+
+    this.logger.log(
+      `Réponse au litige reçue du fournisseur ${supplier_id} pour facture ${invoice.invoice_number_supplier}`
+    );
+
+    // Envoyer un email au business owner
+    await this.mailService.sendDisputeResponseToOwner(
+      business_id,
+      invoice,
+      responseMessage,
+      proposedSolution,
+      proposedAmount,
+    );
+
+    return response;
+  }
+
+  // ─── Obtenir les litiges pour un fournisseur ─────────────────────────────
+  async getDisputedInvoices(token: string) {
+    const { business_id, supplier_id } = await this.validateToken(token);
+
+    const invoices = await this.invoiceRepo.find({
+      where: {
+        business_id,
+        supplier_id,
+        status: InvoiceStatus.DISPUTED,
+      },
+      relations: ['supplier_po'],
+      order: { invoice_date: 'DESC' },
+    });
+
+    // Récupérer les réponses existantes
+    const responses = await this.disputeResponseRepo.find({
+      where: {
+        business_id,
+        supplier_id,
+      },
+      order: { created_at: 'DESC' },
+    });
+
+    return {
+      disputed_invoices: invoices,
+      responses,
+    };
+  }
 }

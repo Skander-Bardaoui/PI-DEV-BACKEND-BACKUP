@@ -1,23 +1,45 @@
 import {
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { DeliveryNote } from '../entities/delivery-note.entity';
 import { DeliveryNoteItem } from '../entities/delivery-note-item.entity';
 import { SalesOrder, SalesOrderStatus } from '../entities/sales-order.entity';
+import { SalesOrderItem } from '../entities/sales-order-item.entity';
 import { CreateDeliveryNoteDto } from '../dto/create-delivery-note.dto';
 import { UpdateDeliveryNoteDto } from '../dto/update-delivery-note.dto';
+import { StockMovementsService } from '../../stock/services/stock-movements/stock-movements.service';
+import { StockMovementType } from '../../stock/enums/stock-movement-type.enum';
+import { StockMovement } from '../../stock/entities/stock-movement.entity';
+import { Product, ProductType } from '../../stock/entities/product.entity';
 
 @Injectable()
 export class DeliveryNotesService {
+  private readonly logger = new Logger(DeliveryNotesService.name);
+
   constructor(
     @InjectRepository(DeliveryNote)
     private readonly noteRepo: Repository<DeliveryNote>,
 
     @InjectRepository(DeliveryNoteItem)
     private readonly itemRepo: Repository<DeliveryNoteItem>,
+
+    @InjectRepository(SalesOrder)
+    private readonly salesOrderRepo: Repository<SalesOrder>,
+
+    @InjectRepository(SalesOrderItem)
+    private readonly salesOrderItemRepo: Repository<SalesOrderItem>,
+
+    @InjectRepository(StockMovement)
+    private readonly stockMovementRepo: Repository<StockMovement>,
+
+    @InjectRepository(Product)
+    private readonly productRepo: Repository<Product>,
+
+    private readonly stockMovementsService: StockMovementsService,
 
     private readonly dataSource: DataSource,
   ) {}
@@ -26,6 +48,21 @@ export class DeliveryNotesService {
     return this.dataSource.transaction(async (manager) => {
       const deliveryNoteNumber = await this.generateNumber(businessId, manager);
       const { items: itemsDto, ...rest } = dto;
+
+      // If salesOrderId is provided, fetch the sales order with items to get productIds
+      let salesOrderItems: SalesOrderItem[] = [];
+      if (dto.salesOrderId) {
+        const salesOrder = await manager.findOne(SalesOrder, {
+          where: { id: dto.salesOrderId, businessId },
+          relations: ['items'],
+        });
+        
+        if (!salesOrder) {
+          throw new NotFoundException(`Sales order ${dto.salesOrderId} not found`);
+        }
+        
+        salesOrderItems = salesOrder.items;
+      }
 
       const note = manager.create(DeliveryNote, {
         ...rest,
@@ -36,12 +73,19 @@ export class DeliveryNotesService {
       });
       const saved = await manager.save(DeliveryNote, note);
 
-      const lines = itemsDto.map((item) =>
-        manager.create(DeliveryNoteItem, {
+      // Map items and ensure productId is included from DTO
+      const lines = itemsDto.map((item) => {
+        // Validate that productId is present
+        if (!item.productId) {
+          throw new Error(`Product ID is required for item: ${item.description}`);
+        }
+        
+        return manager.create(DeliveryNoteItem, {
           ...item,
           deliveryNoteId: saved.id,
-        }),
-      );
+          productId: item.productId, // Explicitly set productId
+        });
+      });
       await manager.save(DeliveryNoteItem, lines);
 
       return manager.findOne(DeliveryNote, {
@@ -99,14 +143,20 @@ export class DeliveryNotesService {
       // 4. Save the parent (no items relation loaded → no cascade re-insert).
       await manager.save(DeliveryNote, note);
 
-      // 5. Insert the new items from the DTO.
+      // 5. Insert the new items from the DTO - ensure productId is present
       if (dto.items?.length) {
-        const lines = dto.items.map((item) =>
-          manager.create(DeliveryNoteItem, {
+        const lines = dto.items.map((item) => {
+          // Validate that productId is present
+          if (!item.productId) {
+            throw new Error(`Product ID is required for item: ${item.description}`);
+          }
+          
+          return manager.create(DeliveryNoteItem, {
             ...item,
             deliveryNoteId: id,
-          }),
-        );
+            productId: item.productId, // Explicitly set productId
+          });
+        });
         await manager.save(DeliveryNoteItem, lines);
       }
 
@@ -147,12 +197,65 @@ export class DeliveryNotesService {
       if (note.salesOrderId) {
         const salesOrder = await manager.findOne(SalesOrder, {
           where: { id: note.salesOrderId, businessId },
+          relations: ['items'],
         });
 
         if (salesOrder && salesOrder.status === SalesOrderStatus.IN_PROGRESS) {
           salesOrder.status = SalesOrderStatus.DELIVERED;
           salesOrder.deliveryDate = new Date();
           await manager.save(SalesOrder, salesOrder);
+
+          // Create stock movements for each item with productId when delivery note is marked as delivered
+          // Use sales order items (not delivery note items) because they have the correct productId
+          for (const orderItem of salesOrder.items) {
+            if (orderItem.productId) {
+              try {
+                // Check if product is physical (not service or digital)
+                const product = await manager.findOne(Product, {
+                  where: { id: orderItem.productId },
+                });
+                
+                if (!product) {
+                  this.logger.warn(`Product ${orderItem.productId} not found, skipping stock movement`);
+                  continue;
+                }
+                
+                if (product.type === ProductType.SERVICE || product.type === ProductType.DIGITAL) {
+                  this.logger.log(`Skipping stock movement for service/digital product ${orderItem.productId}`);
+                  continue;
+                }
+
+                const quantityBefore = Number(product.quantity);
+                const quantityChange = -Math.abs(Number(orderItem.quantity)); // Negative for sales
+                const quantityAfter = Number((quantityBefore + quantityChange).toFixed(3));
+
+                // Create stock movement
+                const movement = manager.create(StockMovement, {
+                  business_id: businessId,
+                  product_id: orderItem.productId,
+                  type: StockMovementType.SORTIE_VENTE,
+                  quantity: quantityChange,
+                  quantity_before: quantityBefore,
+                  quantity_after: quantityAfter,
+                  reference_type: 'DELIVERY_NOTE',
+                  reference_id: note.id,
+                  note: `Sortie vente - BL ${note.deliveryNoteNumber} - ${orderItem.description}`,
+                });
+                await manager.save(StockMovement, movement);
+
+                // Update product quantity
+                product.quantity = quantityAfter;
+                await manager.save(Product, product);
+                
+                this.logger.log(`✅ Stock movement created for product ${orderItem.productId}: ${quantityBefore} -> ${quantityAfter} (${orderItem.description})`);
+              } catch (error) {
+                this.logger.error(`Failed to create stock movement for product ${orderItem.productId}:`, error);
+                // Continue with other items even if one fails
+              }
+            } else {
+              this.logger.warn(`⚠️ Sales order item ${orderItem.id} has no productId, skipping stock movement. Description: ${orderItem.description}`);
+            }
+          }
         }
       }
 

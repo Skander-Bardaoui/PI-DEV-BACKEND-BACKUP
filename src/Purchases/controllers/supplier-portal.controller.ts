@@ -103,4 +103,35 @@ export class SupplierPortalController {
       size:     file.size,
     };
   }
+
+  // ─── GET /supplier-portal/disputes?token=xxx ──────────────────────────────
+  // Obtenir toutes les factures en litige pour ce fournisseur
+  @Get('disputes')
+  getDisputedInvoices(@Query('token') token: string) {
+    if (!token) throw new BadRequestException('Token manquant.');
+    return this.svc.getDisputedInvoices(token);
+  }
+
+  // ─── POST /supplier-portal/respond-dispute?token=xxx ──────────────────────
+  // Le fournisseur répond à un litige
+  @Post('respond-dispute')
+  respondToDispute(
+    @Query('token') token: string,
+    @Body('invoice_id') invoiceId: string,
+    @Body('response_message') responseMessage: string,
+    @Body('proposed_solution') proposedSolution?: string,
+    @Body('proposed_amount') proposedAmount?: number,
+  ) {
+    if (!token) throw new BadRequestException('Token manquant.');
+    if (!invoiceId) throw new BadRequestException('invoice_id manquant.');
+    if (!responseMessage) throw new BadRequestException('Message de réponse requis.');
+    
+    return this.svc.respondToDispute(
+      token,
+      invoiceId,
+      responseMessage,
+      proposedSolution,
+      proposedAmount,
+    );
+  }
 }

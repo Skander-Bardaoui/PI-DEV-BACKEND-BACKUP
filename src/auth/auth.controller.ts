@@ -13,6 +13,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import type { Response as ExpressResponse } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -25,10 +27,21 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { Tenant } from '../tenants/entities/tenant.entity';
+import { Subscription } from '../platform-admin/entities/subscription.entity';
+import { Business } from '../businesses/entities/business.entity';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    @InjectRepository(Tenant)
+    private readonly tenantRepository: Repository<Tenant>,
+    @InjectRepository(Subscription)
+    private readonly subscriptionRepository: Repository<Subscription>,
+    @InjectRepository(Business)
+    private readonly businessRepository: Repository<Business>,
+  ) {}
 
   // ─── POST /auth/register ─────────────────────────────────────────────────
   @Post('register')
@@ -76,13 +89,13 @@ export class AuthController {
     res.clearCookie('access_token', {
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? 'strict' : 'lax',
+      sameSite: 'none', // Match the cookie settings
     });
     
     res.clearCookie('refresh_token', {
       httpOnly: true,
       secure: isProduction,
-      sameSite: isProduction ? 'strict' : 'lax',
+      sameSite: 'none', // Match the cookie settings
       path: '/auth/refresh',
     });
     
@@ -96,7 +109,57 @@ export class AuthController {
   async getMe(@Request() req) {
     // Don't send the password_hash to the frontend, ever.
     const { password_hash, ...safeUser } = req.user;
-    return safeUser;
+    
+    let hasAIAccess = false;
+    let planInfo: { name: string; slug: string; ai_enabled: boolean } | null = null;
+    let tenantInfo: { id: string; name: string; subscription?: any } | null = null;
+    
+    // First, try to find tenant by ownerId (for tenant owners)
+    let tenant = await this.tenantRepository.findOne({
+      where: { ownerId: safeUser.id },
+    });
+    
+    // If not found and user has business_id, find tenant through business
+    if (!tenant && safeUser.business_id) {
+      const business = await this.businessRepository.findOne({
+        where: { id: safeUser.business_id },
+        relations: ['tenant'],
+      });
+      
+      if (business) {
+        tenant = business.tenant;
+      }
+    }
+    
+    if (tenant) {
+      const subscription = await this.subscriptionRepository.findOne({
+        where: { tenant_id: tenant.id },
+        relations: ['plan'],
+        order: { created_at: 'DESC' },
+      });
+      
+      if (subscription && subscription.plan) {
+        hasAIAccess = subscription.plan.ai_enabled === true;
+        planInfo = {
+          name: subscription.plan.name,
+          slug: subscription.plan.slug,
+          ai_enabled: subscription.plan.ai_enabled,
+        };
+      }
+      
+      tenantInfo = {
+        id: tenant.id,
+        name: tenant.name,
+        subscription: subscription,
+      };
+    }
+    
+    return {
+      ...safeUser,
+      hasAIAccess,
+      plan: planInfo,
+      tenant: tenantInfo,
+    };
   }
 
   // ─── GET /auth/roles-demo ────────────────────────────────────────────────
@@ -159,5 +222,23 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.newPassword);
     return { message: 'Password reset successfully' };
+  }
+
+  // ─── Google OAuth ────────────────────────────────────────────────────────
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth() {
+    // Initiates Google OAuth flow
+  }
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthCallback(@Request() req, @Response() res: ExpressResponse) {
+    // Handle Google OAuth callback
+    const result = await this.authService.handleOAuthLogin(req.user, res);
+    
+    // Redirect to frontend with success
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/app/dashboard`);
   }
 }

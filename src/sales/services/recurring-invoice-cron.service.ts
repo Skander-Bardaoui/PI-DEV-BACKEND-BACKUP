@@ -2,11 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
-import { RecurringInvoice } from '../entities/recurring-invoice.entity';
+import { RecurringInvoice, RecurringInvoiceStatus, DiscountType } from '../entities/recurring-invoice.entity';
 import { Invoice } from '../entities/invoice.entity';
 import { InvoiceItem } from '../entities/invoice-item.entity';
 import { InvoiceStatus } from '../enums/invoice-status.enum';
 import { RecurringInvoicesService } from './recurring-invoices.service';
+// import { RecurringSubscriptionMailService } from './recurring-subscription-mail.service';
 import { DataSource } from 'typeorm';
 
 @Injectable()
@@ -21,6 +22,7 @@ export class RecurringInvoiceCronService {
     @InjectRepository(InvoiceItem)
     private readonly invoiceItemRepo: Repository<InvoiceItem>,
     private readonly recurringService: RecurringInvoicesService,
+    // private readonly subscriptionMailService: RecurringSubscriptionMailService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -33,7 +35,7 @@ export class RecurringInvoiceCronService {
 
     const dueRecurring = await this.recurringRepo.find({
       where: {
-        is_active: true,
+        status: RecurringInvoiceStatus.ACTIVE,
         next_invoice_date: LessThanOrEqual(today),
       },
       relations: ['client', 'business'],
@@ -45,7 +47,7 @@ export class RecurringInvoiceCronService {
       try {
         // Check if end_date has passed
         if (recurring.end_date && new Date(recurring.end_date) < today) {
-          recurring.is_active = false;
+          recurring.status = RecurringInvoiceStatus.INACTIVE;
           await this.recurringRepo.save(recurring);
           this.logger.log(`Deactivated recurring invoice ${recurring.id} - end date reached`);
           continue;
@@ -55,17 +57,31 @@ export class RecurringInvoiceCronService {
           // Generate invoice number
           const invoiceNumber = await this.generateInvoiceNumber(recurring.business_id, manager);
 
-          // Calculate amounts
-          const subtotal_ht = Number(recurring.amount);
+          // Apply discount
+          const baseAmount = Number(recurring.amount);
+          const subtotal_ht = this.applyDiscount(
+            baseAmount,
+            recurring.discount_type,
+            recurring.discount_value ? Number(recurring.discount_value) : null
+          );
+          
           const tax_amount = subtotal_ht * (Number(recurring.tax_rate) / 100);
           const timbre_fiscal = 1.000;
           const total_ttc = subtotal_ht + tax_amount;
           const net_amount = total_ttc + timbre_fiscal;
 
+          // Log discount application
+          if (recurring.discount_type && recurring.discount_value) {
+            this.logger.log(
+              `Applied ${recurring.discount_type} discount of ${recurring.discount_value} to recurring ${recurring.id}. Base: ${baseAmount}, After discount: ${subtotal_ht}`
+            );
+          }
+
           // Create invoice
           const invoice = manager.create(Invoice, {
             business_id: recurring.business_id,
             client_id: recurring.client_id,
+            recurring_invoice_id: recurring.id,
             invoice_number: invoiceNumber,
             type: 'NORMAL' as any,
             date: today,
@@ -91,7 +107,7 @@ export class RecurringInvoiceCronService {
             invoice_id: savedInvoice.id,
             description: recurring.description,
             quantity: 1,
-            unit_price: recurring.amount,
+            unit_price: subtotal_ht,
             tax_rate_value: recurring.tax_rate,
             line_total_ht: lineTotal,
             line_tax: lineTax,
@@ -113,6 +129,23 @@ export class RecurringInvoiceCronService {
           this.logger.log(
             `Generated invoice ${invoiceNumber} from recurring ${recurring.id}`,
           );
+
+          // Send email to client with subscription management options
+          // TODO: Uncomment when RecurringSubscriptionMailService is ready
+          /*
+          try {
+            await this.subscriptionMailService.sendRecurringInvoiceEmail(
+              recurring,
+              savedInvoice,
+            );
+            this.logger.log(`Sent subscription email for invoice ${invoiceNumber}`);
+          } catch (emailError) {
+            this.logger.error(
+              `Failed to send subscription email for invoice ${invoiceNumber}:`,
+              emailError,
+            );
+          }
+          */
         });
       } catch (error) {
         this.logger.error(
@@ -123,6 +156,13 @@ export class RecurringInvoiceCronService {
     }
 
     this.logger.log('Recurring invoice generation completed');
+  }
+
+  private applyDiscount(amount: number, type: DiscountType | null, value: number | null): number {
+    if (!type || value == null) return amount;
+    if (type === DiscountType.PERCENTAGE) return amount * (1 - value / 100);
+    if (type === DiscountType.FIXED) return Math.max(0, amount - value);
+    return amount;
   }
 
   private async generateInvoiceNumber(businessId: string, manager: any): Promise<string> {

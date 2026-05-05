@@ -1,6 +1,6 @@
-import { IsUUID, IsEnum, IsDate, IsNumber, IsString, IsOptional, IsBoolean } from 'class-validator';
+import { IsUUID, IsEnum, IsDate, IsNumber, IsString, IsOptional, IsBoolean, Min, Max, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
-import { RecurringFrequency } from '../entities/recurring-invoice.entity';
+import { RecurringFrequency, DiscountType } from '../entities/recurring-invoice.entity';
 
 export class CreateRecurringInvoiceDto {
   @IsUUID()
@@ -35,4 +35,13 @@ export class CreateRecurringInvoiceDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsEnum(DiscountType)
+  discount_type?: DiscountType;
+
+  @ValidateIf(o => o.discount_type != null)
+  @IsNumber()
+  @Min(0)
+  discount_value?: number;
 }

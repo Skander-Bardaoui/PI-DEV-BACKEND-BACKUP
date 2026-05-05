@@ -28,20 +28,23 @@ export class SupplierPOItem {
   supplier_po: SupplierPO;
 
   // ── Lien vers le produit (Module Stock) ───────────────────────
-  // nullable : commande possible pour un produit hors catalogue
-  @Column({ type: 'uuid', nullable: true })
-  product_id: string | null;
+  // Product is now required - users must select from catalog
+  @Column({ type: 'uuid', nullable: false })
+  product_id: string;
 
   // eager:false pour éviter les chargements inutiles
   @ManyToOne(() => Product, (p) => p.supplierPOItems, {
-    nullable: true,
+    nullable: false,
     eager: false,
-    onDelete: 'SET NULL',
+    onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'product_id' })
-  product: Product | null;
+  product: Product;
 
   // ── Données de la ligne ───────────────────────────────────────
+  @Column({ type: 'varchar', length: 20, default: 'PRODUCT' })
+  item_type: string; // 'PRODUCT' or 'SERVICE'
+
   @Column({ type: 'varchar', length: 500 })
   description: string;
 

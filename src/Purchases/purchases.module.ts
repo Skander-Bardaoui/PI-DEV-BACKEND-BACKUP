@@ -18,7 +18,12 @@ import { SupplierPO }          from './entities/supplier-po.entity';
 import { Supplier }            from './entities/supplier.entity';
 import { SupplierPortalToken } from './entities/supplier-portal-token.entity';
 import { PurchaseAlert }       from './entities/purchase-alert.entity';
+import { DisputeResponse }     from './entities/dispute-response.entity';
+import { MLRecommendationAction } from './entities/ml-recommendation-action.entity';
 import { Business }            from '../businesses/entities/business.entity';
+import { StockMovement }       from '../stock/entities/stock-movement.entity';
+import { Product }             from '../stock/entities/product.entity';
+import { SupplierPayment }     from '../payments/entities/supplier-payment.entity';
 // import { Product }             from '../products/entities/product.entity'; // Module pas encore implémenté
  
 // Controllers — SupplierPaymentsController RETIRÉ (dans PaymentsModule)
@@ -50,25 +55,39 @@ import { SupplierAiInsightsService } from './services/supplier-ai-insights.servi
  
 // FIX : import du module payments avec forwardRef des DEUX côtés
 import { PaymentsModule } from '../payments/payments.module';
+import { StockModule } from '../stock/stock.module';
 import { SupplierScoringController } from './controllers/supplier-scoring.controller';
 import { Tenant } from '../tenants/entities/tenant.entity';
 import { User } from '../users/entities/user.entity';
 import { SupplierOnboardingController } from './controllers/supplier-onboarding.controller';
 import { SupplierOnboardingService } from './services/supplier-onboarding.service';
+import { SupplierRecommendationService } from './services/supplier-recommendation.service';
+import { PurchaseAiAssistantService } from './services/purchase-ai-assistant.service';
 import { SupplierOnboardingPublicController } from './controllers/supplier-onboarding.controller';
+import { PurchaseAiAssistantController } from './controllers/purchase-ai-assistant.controller';
 import { PurchaseOcrAiService } from './services/purchase-ocr-ai.service';
 import { OcrService } from './services/ocr.service';
+import { DisputeResolutionService } from './services/dispute-resolution.service';
+import { DisputeResolutionController } from './controllers/dispute-resolution.controller';
+import { MlPredictionService } from './services/ml-prediction.service';
+import { MlPredictionController } from './controllers/ml-prediction.controller';
+import { PurchasePermissionGuard } from './guards/purchase-permission.guard';
+import { BusinessMember } from '../businesses/entities/business-member.entity';
+import { Subscription } from '../platform-admin/entities/subscription.entity';
+import { AiFeatureGuard } from '../platform-admin/guards/ai-feature.guard';
  
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       GoodsReceipt, GoodsReceiptItem, PurchaseInvoice,
       SupplierPOItem, SupplierPO, Supplier,
-      SupplierPortalToken, PurchaseAlert, Business, Tenant, User,
+      PurchaseAlert, DisputeResponse, MLRecommendationAction, Business, Tenant, User,
+      StockMovement, Product, SupplierPayment, BusinessMember, Subscription,
       // Product, // Module pas encore implémenté
-      // SupplierPayment retiré — dans PaymentsModule
+      // SupplierPortalToken temporairement retiré pour éviter les erreurs de synchronisation
     ]),
     forwardRef(() => PaymentsModule), // ← FIX : forwardRef des deux côtés
+    StockModule, // Import StockModule to get StockMovementsService
     HttpModule,
     ScheduleModule.forRoot(),
     MulterModule.register({ dest: './uploads' }),
@@ -96,6 +115,9 @@ import { OcrService } from './services/ocr.service';
     OcrController,
     SupplierOnboardingController,
     SupplierOnboardingPublicController,
+    DisputeResolutionController,
+    PurchaseAiAssistantController,
+    MlPredictionController,
   ],
  
   providers: [
@@ -114,8 +136,13 @@ import { OcrService } from './services/ocr.service';
     PurchaseOcrAiService,
     PoAiGeneratorService,
     SupplierAiInsightsService,
-    SupplierOnboardingService 
-
+    SupplierOnboardingService,
+    DisputeResolutionService,
+    SupplierRecommendationService,
+    PurchaseAiAssistantService,
+    MlPredictionService,
+    PurchasePermissionGuard,
+    AiFeatureGuard,
   ],
  
   exports: [

@@ -12,6 +12,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { SupplierPaymentsService } from '../services/supplier-payments.service';
 import { ZodValidationPipe } from 'src/common/pipes/zod-validation.pipe';
 import { CreateSupplierPaymentSchema } from '../dto/supplier-payment.dto';
+import Stripe from 'stripe';
 
 
 @UseGuards(AuthGuard('jwt'))
@@ -19,6 +20,23 @@ import { CreateSupplierPaymentSchema } from '../dto/supplier-payment.dto';
 export class SupplierPaymentsController {
   constructor(private readonly svc: SupplierPaymentsService) {}
 
+  @Post('stripe/create-intent')
+async createStripeIntent(
+  @Param('businessId', ParseUUIDPipe) businessId: string,
+  @Body() body: { amount: number },
+) {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: '2026-03-25.dahlia',
+  });
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: Math.round(body.amount * 100),
+    currency: 'eur',
+    metadata: { businessId },
+  });
+
+  return { clientSecret: paymentIntent.client_secret };
+}
   // POST /businesses/:businessId/supplier-payments
   @Post()
   async create(

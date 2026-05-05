@@ -41,6 +41,9 @@ export class PurchaseInvoicesService {
 
   // ─── CREATE ───────────────────────────────────────────────────────────────────
   async create(businessId: string, dto: CreatePurchaseInvoiceDto): Promise<PurchaseInvoice> {
+    // Générer automatiquement le numéro de facture INTERNE
+    const invoiceNumber = await this.generateInvoiceNumber(businessId);
+    
     const timbre    = dto.timbre_fiscal ?? 1.000;
     const net       = this.round(dto.subtotal_ht + dto.tax_amount + timbre);
     const dueDelta  = 30; // jours par défaut — à lire depuis Supplier.payment_terms si dispo
@@ -51,6 +54,8 @@ export class PurchaseInvoicesService {
 
     const inv = this.invRepo.create({
       ...dto,
+      invoice_number: invoiceNumber, // Numéro interne auto-généré
+      invoice_number_supplier: dto.invoice_number_supplier || null, // Numéro fournisseur optionnel
       business_id:   businessId,
       timbre_fiscal: timbre,
       net_amount:    net,
@@ -60,6 +65,33 @@ export class PurchaseInvoicesService {
     });
 
     return this.invRepo.save(inv);
+  }
+
+  // ─── GENERATE INVOICE NUMBER ──────────────────────────────────────────────────
+  private async generateInvoiceNumber(businessId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `FACT-${year}-`;
+    
+    // Trouver le dernier numéro de facture pour cette année
+    const lastInvoice = await this.invRepo
+      .createQueryBuilder('inv')
+      .where('inv.business_id = :businessId', { businessId })
+      .andWhere('inv.invoice_number LIKE :prefix', { prefix: `${prefix}%` })
+      .orderBy('inv.created_at', 'DESC')
+      .getOne();
+    
+    let nextNumber = 1;
+    if (lastInvoice && lastInvoice.invoice_number) {
+      // Extraire le numéro de la dernière facture (ex: FACT-2026-0042 → 42)
+      const match = lastInvoice.invoice_number.match(/FACT-\d{4}-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
+      }
+    }
+    
+    // Formater avec des zéros (ex: 0001, 0042, 1234)
+    const paddedNumber = String(nextNumber).padStart(4, '0');
+    return `${prefix}${paddedNumber}`;
   }
   // ─── FIND ALL (avec tri côté backend) ─────────────────────────────────────────
   async findAll(businessId: string, query: any) {

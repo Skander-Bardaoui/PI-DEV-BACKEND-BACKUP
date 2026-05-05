@@ -4,7 +4,7 @@ import {
   ManyToOne, OneToMany, JoinColumn, Index,
 } from 'typeorm';
 import { Product }   from './product.entity';
-import { Business }  from 'src/businesses/entities/business.entity';
+import { Business }  from '../../businesses/entities/business.entity';
  
 @Entity('product_categories')
 @Index(['business_id', 'is_active'])
@@ -45,12 +45,43 @@ export class ProductCategory {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
  
-  // FIX : snake_case
+  // ==================== Alaa change for service type ====================
+  @Column({ type: 'varchar', length: 20, default: 'PRODUCT' })
+  category_type: string; // 'PRODUCT' or 'SERVICE'
+  // ====================================================================
+ 
+  // ==================== Audit Fields ====================
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
  
   @UpdateDateColumn({ type: 'timestamptz' })
   updated_at: Date;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  @Index()
+  deleted_at: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  created_by: string | null;
+
+  @ManyToOne('User', { nullable: true, eager: false })
+  @JoinColumn({ name: 'created_by' })
+  creator: any;
+
+  @Column({ type: 'uuid', nullable: true })
+  updated_by: string | null;
+
+  @ManyToOne('User', { nullable: true, eager: false })
+  @JoinColumn({ name: 'updated_by' })
+  updater: any;
+
+  @Column({ type: 'uuid', nullable: true })
+  deleted_by: string | null;
+
+  @ManyToOne('User', { nullable: true, eager: false })
+  @JoinColumn({ name: 'deleted_by' })
+  deleter: any;
+  // ======================================================
  
   @ManyToOne(() => ProductCategory, (category) => category.children, {
     nullable: true,

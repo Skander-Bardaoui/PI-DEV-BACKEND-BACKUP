@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pi-dev-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node dist/src/main.js
+    envVars:
+      - key: NODE_ENV
+        value: production

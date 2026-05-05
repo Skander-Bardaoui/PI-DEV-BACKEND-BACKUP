@@ -141,7 +141,9 @@ export class UsersService {
         await fs.unlink(
           path.join(process.cwd(), 'public', user.avatarUrl),
         );
-      } catch {}
+      } catch {
+        // Ignore if file doesn't exist
+      }
     }
 
     const avatarUrl = `/uploads/avatars/${filename}`;

@@ -5,6 +5,7 @@ import { InjectRepository }   from '@nestjs/typeorm';
 import { Repository }         from 'typeorm';
 import * as nodemailer        from 'nodemailer';
 import { SupplierPO }         from '../entities/supplier-po.entity';
+import { PurchaseInvoice }    from '../entities/purchase-invoice.entity';
 import { SupplierPortalService } from './supplier-portal.service';
 import { Business }           from '../../businesses/entities/business.entity';
 import { Tenant }             from '../../tenants/entities/tenant.entity';
@@ -46,7 +47,6 @@ export class PurchaseMailService {
   }
 
   // ─── Helper : résoudre les destinataires owner ────────────────────────────
-  // Retourne : business.email ET tenant owner email (dédupliqués, filtrés non-vides)
   private async resolveOwnerRecipients(businessId: string): Promise<{
     recipients: string;
     businessName: string;
@@ -60,7 +60,6 @@ export class PurchaseMailService {
     const businessPhone = business?.phone ?? '';
     const businessMF    = business?.tax_id ?? '';
 
-    // Chercher l'email du tenant owner via la table users
     let ownerEmail = '';
     if (business?.tenant_id) {
       const tenant = await this.tenantRepo.findOne({ where: { id: business.tenant_id } });
@@ -70,7 +69,6 @@ export class PurchaseMailService {
       }
     }
 
-    // Dédupliquer : si business.email === owner.email, n'envoyer qu'une fois
     const emailSet = new Set<string>(
       [businessEmail, ownerEmail].filter(e => !!e && e.includes('@'))
     );
@@ -84,9 +82,7 @@ export class PurchaseMailService {
     const supplier = po.supplier;
 
     if (!supplier?.email) {
-      this.logger.warn(
-        `BC ${po.po_number} : fournisseur "${supplier?.name}" sans email — email non envoyé.`,
-      );
+      this.logger.warn(`BC ${po.po_number} : fournisseur "${supplier?.name}" sans email.`);
       return;
     }
 
@@ -110,284 +106,339 @@ export class PurchaseMailService {
       </tr>
     `).join('');
 
-    const html = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#333;background:#f5f5f5;padding:20px;">
-
-  <div style="background:#4F46E5;padding:24px 32px;border-radius:8px 8px 0 0;">
-    <table style="width:100%;">
-      <tr>
-        <td>
-          <h1 style="color:#fff;margin:0;font-size:20px;">${businessName}</h1>
-          ${businessMF    ? `<p style="color:#C7D2FE;margin:3px 0 0;font-size:12px;">MF : ${businessMF}</p>`   : ''}
-          ${businessEmail ? `<p style="color:#C7D2FE;margin:2px 0 0;font-size:12px;">${businessEmail}</p>`     : ''}
-          ${businessPhone ? `<p style="color:#C7D2FE;margin:2px 0 0;font-size:12px;">${businessPhone}</p>`     : ''}
-        </td>
-        <td style="text-align:right;vertical-align:top;">
-          <p style="color:#C7D2FE;margin:0;font-size:12px;text-transform:uppercase;letter-spacing:.05em;">Bon de Commande</p>
-          <p style="color:#fff;margin:4px 0 0;font-size:22px;font-weight:700;">${po.po_number}</p>
-          <p style="color:#C7D2FE;margin:4px 0 0;font-size:12px;">
-            Le ${new Date().toLocaleDateString('fr-TN', { day: '2-digit', month: 'long', year: 'numeric' })}
-          </p>
-          ${po.expected_delivery
-            ? `<p style="color:#C7D2FE;margin:2px 0 0;font-size:12px;">Livraison souhaitée : ${new Date(po.expected_delivery).toLocaleDateString('fr-TN')}</p>`
-            : ''}
-        </td>
-      </tr>
-    </table>
-  </div>
-
-  <div style="background:#fff;padding:24px 32px;border-left:1px solid #E5E7EB;border-right:1px solid #E5E7EB;">
-
-    <table style="width:100%;margin-bottom:20px;">
-      <tr>
-        <td style="width:48%;vertical-align:top;padding:12px;background:#F9FAFB;border-radius:8px;">
-          <p style="font-size:11px;color:#9CA3AF;text-transform:uppercase;margin:0 0 6px;letter-spacing:.05em;">De</p>
-          <p style="font-weight:700;margin:0;font-size:14px;color:#111;">${businessName}</p>
-          ${businessEmail ? `<p style="margin:3px 0 0;font-size:13px;color:#555;">${businessEmail}</p>` : ''}
-          ${businessPhone ? `<p style="margin:2px 0 0;font-size:13px;color:#555;">${businessPhone}</p>` : ''}
-        </td>
-        <td style="width:4%;"></td>
-        <td style="width:48%;vertical-align:top;padding:12px;background:#F9FAFB;border-radius:8px;">
-          <p style="font-size:11px;color:#9CA3AF;text-transform:uppercase;margin:0 0 6px;letter-spacing:.05em;">À</p>
-          <p style="font-weight:700;margin:0;font-size:14px;color:#111;">${supplier.name}</p>
-          ${supplier.email     ? `<p style="margin:3px 0 0;font-size:13px;color:#555;">${supplier.email}</p>`              : ''}
-          ${supplier.phone     ? `<p style="margin:2px 0 0;font-size:13px;color:#555;">${supplier.phone}</p>`              : ''}
-          ${supplier.matricule_fiscal ? `<p style="margin:2px 0 0;font-size:11px;color:#9CA3AF;">MF : ${supplier.matricule_fiscal}</p>` : ''}
-        </td>
-      </tr>
-    </table>
-
-    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:#444;">
-      Bonjour <strong>${supplier.name}</strong>,<br><br>
-      Nous avons le plaisir de vous adresser notre bon de commande <strong>${po.po_number}</strong>.
-      Veuillez en prendre connaissance et nous confirmer votre accord via le bouton ci-dessous.
-    </p>
-
-    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
-      <thead>
-        <tr style="background:#F3F4F6;">
-          <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6B7280;font-weight:600;">Description</th>
-          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6B7280;font-weight:600;">Qté</th>
-          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6B7280;font-weight:600;">P.U. HT</th>
-          <th style="padding:10px 12px;text-align:center;font-size:12px;color:#6B7280;font-weight:600;">TVA</th>
-          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6B7280;font-weight:600;">Total HT</th>
-        </tr>
-      </thead>
-      <tbody>${itemsHtml}</tbody>
-    </table>
-
-    <div style="text-align:right;margin-bottom:24px;">
-      <table style="margin-left:auto;min-width:280px;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
-        <tr style="background:#F9FAFB;">
-          <td style="padding:8px 16px;color:#6B7280;font-size:13px;">Sous-total HT</td>
-          <td style="padding:8px 16px;text-align:right;font-size:13px;">${Number(po.subtotal_ht).toFixed(3)} TND</td>
-        </tr>
-        <tr>
-          <td style="padding:8px 16px;color:#6B7280;font-size:13px;">TVA</td>
-          <td style="padding:8px 16px;text-align:right;font-size:13px;">${Number(po.tax_amount).toFixed(3)} TND</td>
-        </tr>
-        <tr style="background:#F9FAFB;">
-          <td style="padding:8px 16px;color:#6B7280;font-size:13px;">Timbre fiscal</td>
-          <td style="padding:8px 16px;text-align:right;font-size:13px;">1,000 TND</td>
-        </tr>
-        <tr style="background:#EEF2FF;">
-          <td style="padding:10px 16px;font-size:15px;font-weight:700;color:#3730A3;">Net TTC</td>
-          <td style="padding:10px 16px;text-align:right;font-size:15px;font-weight:700;color:#3730A3;">${Number(po.net_amount).toFixed(3)} TND</td>
-        </tr>
-      </table>
-    </div>
-
-    ${po.notes ? `
-    <div style="padding:12px 16px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;margin-bottom:24px;">
-      <p style="margin:0;font-size:13px;color:#92400E;"><strong>Notes :</strong> ${po.notes}</p>
-    </div>` : ''}
-
-    <div style="text-align:center;padding:24px;background:#F0F4FF;border-radius:12px;border:1px solid #C7D2FE;margin-bottom:20px;">
-      <p style="margin:0 0 8px;font-size:14px;color:#3730A3;font-weight:600;">
-        Confirmez ou refusez ce bon de commande en un clic
-      </p>
-      <p style="margin:0 0 16px;font-size:12px;color:#6B7280;">
-        Accédez à votre portail sécurisé pour confirmer votre accord et suivre vos paiements.
-      </p>
-      <a href="${portalUrl}"
-         style="display:inline-block;padding:14px 32px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:700;letter-spacing:.02em;">
-        Accéder à mon portail fournisseur →
-      </a>
-      <p style="margin:12px 0 0;font-size:11px;color:#9CA3AF;">
-        Ce lien est valable 72 heures et est uniquement destiné à ${supplier.name}.
-      </p>
-    </div>
-
-    <div style="padding:12px 14px;background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;margin-top:12px;font-size:12px;color:#166534;">
-      <p style="margin:0;font-weight:600;margin-bottom:4px;">Contact de votre client</p>
-      <p style="margin:0;">Pour toute question, contactez <strong>${businessName}</strong> directement :</p>
-      ${businessEmail ? `<p style="margin:4px 0 0;"><a href="mailto:${businessEmail}" style="color:#166534;font-weight:600;">${businessEmail}</a></p>` : ''}
-      ${businessPhone ? `<p style="margin:2px 0 0;">Tél : ${businessPhone}</p>` : ''}
-      <p style="margin:8px 0 0;font-style:italic;color:#15803D;">
-        Après livraison, envoyez votre facture à cette adresse email. Votre client l'enregistrera dans son système.
-      </p>
-    </div>
-
-  </div>
-
-  <div style="padding:16px 32px;background:#F9FAFB;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;font-size:11px;color:#9CA3AF;text-align:center;">
-    Cet email a été envoyé automatiquement par ${businessName}.
-    Si vous n'êtes pas le destinataire prévu, veuillez ignorer ce message.
-  </div>
-
-</body>
-</html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;">
+<div style="background:#4F46E5;padding:24px;color:#fff;"><h1 style="margin:0;">${businessName}</h1><p style="margin:4px 0 0;">BC ${po.po_number}</p></div>
+<div style="background:#fff;padding:24px;"><p>Bonjour <strong>${supplier.name}</strong>,</p><p>Veuillez trouver ci-joint notre bon de commande.</p>
+<table style="width:100%;border-collapse:collapse;margin:20px 0;"><thead><tr style="background:#f3f4f6;"><th style="padding:10px;text-align:left;">Description</th><th style="padding:10px;text-align:right;">Qté</th><th style="padding:10px;text-align:right;">P.U. HT</th><th style="padding:10px;text-align:center;">TVA</th><th style="padding:10px;text-align:right;">Total HT</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+<div style="text-align:right;margin:20px 0;"><table style="margin-left:auto;"><tr><td style="padding:8px;">Sous-total HT</td><td style="padding:8px;text-align:right;">${Number(po.subtotal_ht).toFixed(3)} TND</td></tr><tr><td style="padding:8px;">TVA</td><td style="padding:8px;text-align:right;">${Number(po.tax_amount).toFixed(3)} TND</td></tr><tr><td style="padding:8px;">Timbre</td><td style="padding:8px;text-align:right;">1,000 TND</td></tr><tr style="font-weight:bold;"><td style="padding:8px;">Net TTC</td><td style="padding:8px;text-align:right;">${Number(po.net_amount).toFixed(3)} TND</td></tr></table></div>
+<div style="text-align:center;padding:20px;background:#f0f4ff;border-radius:8px;margin:20px 0;"><a href="${portalUrl}" style="display:inline-block;padding:12px 24px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:6px;">Accéder au portail fournisseur</a></div>
+<p>Cordialement,<br><strong>${businessName}</strong></p></div></body></html>`;
 
     try {
-      const info = await this.transporter.sendMail({
-        from:    `"${businessName}" <${this.from}>`,
-        replyTo: businessEmail || this.from,   // ← le fournisseur répond au business
-        to:      supplier.email,
+      await this.transporter.sendMail({
+        from: `"${businessName}" <${this.from}>`,
+        replyTo: businessEmail || this.from,
+        to: supplier.email,
         subject: `Bon de Commande ${po.po_number} — ${businessName}`,
         html,
       });
-      this.logger.log(`Email BC ${po.po_number} envoyé à ${supplier.email} (reply-to: ${businessEmail || this.from}).`);
-      this.logger.debug(`Message ID: ${info.messageId}, Response: ${info.response}`);
+      this.logger.log(`Email BC ${po.po_number} envoyé à ${supplier.email}`);
     } catch (err: any) {
-      this.logger.error(`Échec envoi email BC ${po.po_number} à ${supplier.email} : ${err.message}`);
-      this.logger.error(`Stack: ${err.stack}`);
-      throw err; // Propager l'erreur pour que l'utilisateur sache qu'il y a un problème
+      this.logger.error(`Échec envoi email BC ${po.po_number}: ${err.message}`);
+      throw err;
     }
   }
 
   // ─── Notification owner : BC confirmé ────────────────────────────────────
   async sendPOConfirmedToOwner(po: SupplierPO): Promise<void> {
     const { recipients, businessName } = await this.resolveOwnerRecipients(po.business_id);
+    if (!recipients) return;
 
-    if (!recipients) {
-      this.logger.warn(`BC ${po.po_number} confirmé — aucun email destinataire trouvé (business.email et owner.email vides).`);
-      return;
-    }
-
-    const supplier = po.supplier;
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f5f5f5;padding:20px;">
-  <div style="background:#16A34A;padding:20px 28px;border-radius:8px 8px 0 0;">
-    <table style="width:100%"><tr>
-      <td>
-        <h2 style="color:#fff;margin:0;font-size:18px;">✓ Bon de commande confirmé</h2>
-        <p style="color:#BBF7D0;margin:4px 0 0;font-size:13px;">Le fournisseur a accepté votre commande</p>
-      </td>
-      <td style="text-align:right;vertical-align:top;">
-        <p style="color:#fff;font-size:20px;font-weight:700;margin:0;">${po.po_number}</p>
-      </td>
-    </tr></table>
-  </div>
-  <div style="background:#fff;padding:20px 28px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;">
-    <p style="font-size:14px;color:#374151;line-height:1.7;">
-      Bonjour,<br><br>
-      <strong>${supplier?.name}</strong> vient de confirmer votre bon de commande
-      <strong>${po.po_number}</strong> d'un montant de
-      <strong>${Number(po.net_amount).toFixed(3)} TND TTC</strong>.
-    </p>
-    <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:14px 16px;margin:16px 0;">
-      <table style="width:100%;font-size:13px;">
-        <tr><td style="color:#166534;padding:3px 0;"><strong>N° BC</strong></td><td style="text-align:right;color:#166534;">${po.po_number}</td></tr>
-        <tr><td style="color:#166534;padding:3px 0;"><strong>Fournisseur</strong></td><td style="text-align:right;color:#166534;">${supplier?.name}</td></tr>
-        <tr><td style="color:#166534;padding:3px 0;"><strong>Montant TTC</strong></td><td style="text-align:right;color:#166534;font-weight:700;">${Number(po.net_amount).toFixed(3)} TND</td></tr>
-        ${po.expected_delivery
-          ? `<tr><td style="color:#166534;padding:3px 0;"><strong>Livraison prévue</strong></td><td style="text-align:right;color:#166534;">${new Date(po.expected_delivery).toLocaleDateString('fr-TN')}</td></tr>`
-          : ''}
-      </table>
-    </div>
-    <p style="font-size:13px;color:#6B7280;line-height:1.6;">
-      Vous pouvez maintenant créer un bon de réception lorsque les marchandises arriveront.
-    </p>
-  </div>
-  <div style="padding:12px;text-align:center;font-size:11px;color:#9CA3AF;">
-    Notification automatique — ${businessName}
-  </div>
-</body>
-</html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:#16A34A;padding:20px;color:#fff;"><h2 style="margin:0;">✓ BC confirmé</h2><p style="margin:4px 0 0;">${po.po_number}</p></div>
+<div style="background:#fff;padding:20px;"><p>Bonjour,</p><p><strong>${po.supplier?.name}</strong> a confirmé votre BC <strong>${po.po_number}</strong> (${Number(po.net_amount).toFixed(3)} TND TTC).</p></div></body></html>`;
 
     try {
       await this.transporter.sendMail({
-        from:    `"${businessName}" <${this.from}>`,
-        to:      recipients,
-        subject: `✓ BC ${po.po_number} confirmé par ${supplier?.name}`,
+        from: `"${businessName}" <${this.from}>`,
+        to: recipients,
+        subject: `✓ BC ${po.po_number} confirmé`,
         html,
       });
-      this.logger.log(`Email confirmation BC ${po.po_number} envoyé à : ${recipients}`);
+      this.logger.log(`Email confirmation BC ${po.po_number} envoyé`);
     } catch (err: any) {
-      this.logger.error(`Échec email confirmation BC : ${err.message}`);
+      this.logger.error(`Échec email confirmation BC: ${err.message}`);
     }
   }
 
   // ─── Notification owner : BC refusé ──────────────────────────────────────
   async sendPORefusedToOwner(po: SupplierPO, reason: string): Promise<void> {
     const { recipients, businessName } = await this.resolveOwnerRecipients(po.business_id);
+    if (!recipients) return;
 
-    if (!recipients) {
-      this.logger.warn(`BC ${po.po_number} refusé — aucun email destinataire trouvé.`);
-      return;
-    }
-
-    const supplier = po.supplier;
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f5f5f5;padding:20px;">
-  <div style="background:#DC2626;padding:20px 28px;border-radius:8px 8px 0 0;">
-    <table style="width:100%"><tr>
-      <td>
-        <h2 style="color:#fff;margin:0;font-size:18px;">✗ Bon de commande refusé</h2>
-        <p style="color:#FCA5A5;margin:4px 0 0;font-size:13px;">Le fournisseur a refusé votre commande</p>
-      </td>
-      <td style="text-align:right;vertical-align:top;">
-        <p style="color:#fff;font-size:20px;font-weight:700;margin:0;">${po.po_number}</p>
-      </td>
-    </tr></table>
-  </div>
-  <div style="background:#fff;padding:20px 28px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;">
-    <p style="font-size:14px;color:#374151;line-height:1.7;">
-      Bonjour,<br><br>
-      <strong>${supplier?.name}</strong> a refusé votre bon de commande <strong>${po.po_number}</strong>.
-    </p>
-    <div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;padding:14px 16px;margin:16px 0;">
-      <p style="font-size:13px;font-weight:600;color:#991B1B;margin:0 0 8px;">Motif du refus :</p>
-      <p style="font-size:13px;color:#7F1D1D;margin:0;">${reason}</p>
-    </div>
-    <div style="background:#F9FAFB;border-radius:8px;padding:12px 16px;margin:12px 0;">
-      <table style="width:100%;font-size:13px;">
-        <tr><td style="color:#6B7280;padding:2px 0;">N° BC</td><td style="text-align:right;color:#374151;">${po.po_number}</td></tr>
-        <tr><td style="color:#6B7280;padding:2px 0;">Fournisseur</td><td style="text-align:right;color:#374151;">${supplier?.name}</td></tr>
-        <tr><td style="color:#6B7280;padding:2px 0;">Montant TTC</td><td style="text-align:right;color:#374151;">${Number(po.net_amount).toFixed(3)} TND</td></tr>
-      </table>
-    </div>
-    <p style="font-size:13px;color:#6B7280;line-height:1.6;">
-      Le bon de commande est annulé. Vous pouvez en créer un nouveau ou contacter <strong>${supplier?.name}</strong> pour négocier.
-    </p>
-  </div>
-  <div style="padding:12px;text-align:center;font-size:11px;color:#9CA3AF;">
-    Notification automatique — ${businessName}
-  </div>
-</body>
-</html>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:#DC2626;padding:20px;color:#fff;"><h2 style="margin:0;">✗ BC refusé</h2><p style="margin:4px 0 0;">${po.po_number}</p></div>
+<div style="background:#fff;padding:20px;"><p>Bonjour,</p><p><strong>${po.supplier?.name}</strong> a refusé votre BC <strong>${po.po_number}</strong>.</p><p><strong>Motif:</strong> ${reason}</p></div></body></html>`;
 
     try {
       await this.transporter.sendMail({
-        from:    `"${businessName}" <${this.from}>`,
-        to:      recipients,
-        subject: `✗ BC ${po.po_number} refusé par ${supplier?.name}`,
+        from: `"${businessName}" <${this.from}>`,
+        to: recipients,
+        subject: `✗ BC ${po.po_number} refusé`,
         html,
       });
-      this.logger.log(`Email refus BC ${po.po_number} envoyé à : ${recipients}`);
+      this.logger.log(`Email refus BC ${po.po_number} envoyé`);
     } catch (err: any) {
-      this.logger.error(`Échec email refus BC : ${err.message}`);
+      this.logger.error(`Échec email refus BC: ${err.message}`);
+    }
+  }
+
+  // ─── Envoi email au fournisseur pour écart de facture ─────────────────────
+  async sendInvoiceDiscrepancyEmail(
+    businessId: string,
+    supplierEmail: string,
+    supplierName: string,
+    invoiceNumber: string,
+    invoicedTotal: number,
+    expectedTotal: number,
+    discrepancy: number,
+    discrepancyPct: number,
+    issues: string[],
+  ): Promise<void> {
+    if (!supplierEmail) {
+      this.logger.warn(`Impossible d'envoyer l'email : fournisseur "${supplierName}" sans email.`);
+      return;
+    }
+
+    const { businessName, businessEmail, businessPhone } =
+      await this.resolveOwnerRecipients(businessId);
+
+    const formatAmount = (amount: number) => {
+      return new Intl.NumberFormat('fr-TN', {
+        style: 'currency',
+        currency: 'TND',
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }).format(amount);
+    };
+
+    const issuesList = issues && issues.length > 0
+      ? issues.map((issue, i) => `<li>${i + 1}. ${issue}</li>`).join('')
+      : '<li>Aucun problème spécifique identifié</li>';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px;"><h2 style="margin:0;">⚠️ Écart détecté sur facture</h2><p style="margin:5px 0 0;">Facture ${invoiceNumber}</p></div>
+<div style="background:#f9fafb;padding:20px;"><p>Bonjour <strong>${supplierName}</strong>,</p><p>Nous avons détecté un écart sur votre facture <strong>${invoiceNumber}</strong>.</p>
+<table style="width:100%;margin:20px 0;"><tr><td style="padding:10px;font-weight:bold;">Montant facturé</td><td style="padding:10px;text-align:right;color:#7c3aed;font-weight:bold;">${formatAmount(invoicedTotal)}</td></tr>
+<tr><td style="padding:10px;font-weight:bold;">Montant attendu</td><td style="padding:10px;text-align:right;color:#10b981;font-weight:bold;">${formatAmount(expectedTotal)}</td></tr>
+<tr><td style="padding:10px;font-weight:bold;">Écart</td><td style="padding:10px;text-align:right;color:#ef4444;font-weight:bold;">${formatAmount(discrepancy)} (${discrepancyPct.toFixed(2)}%)</td></tr></table>
+<h3 style="color:#ef4444;">Problèmes identifiés:</h3><ul>${issuesList}</ul>
+<p><strong>Action requise:</strong> Merci de vérifier et nous fournir des clarifications.</p>
+<p>Contact: <a href="mailto:${businessEmail}">${businessEmail}</a>${businessPhone ? ` | ${businessPhone}` : ''}</p>
+<p>Cordialement,<br><strong>${businessName}</strong></p></div></body></html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${businessName}" <${this.from}>`,
+        replyTo: businessEmail || this.from,
+        to: supplierEmail,
+        subject: `⚠️ Écart détecté sur facture ${invoiceNumber}`,
+        html,
+      });
+      this.logger.log(`Email écart facture envoyé à ${supplierEmail} pour ${invoiceNumber}`);
+    } catch (error: any) {
+      this.logger.error(`Échec envoi email écart facture ${invoiceNumber}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ─── Envoi email de clarification au fournisseur ─────────────────────────
+  async sendDisputeClarificationEmail(
+    businessId: string,
+    supplierEmail: string,
+    supplierName: string,
+    invoiceNumber: string,
+    disputeReason: string,
+    clarificationNotes: string,
+    disputeCategory?: string,
+    invoicedAmount?: number,
+    expectedAmount?: number,
+    discrepancy?: number,
+    accessToken?: string,
+  ): Promise<void> {
+    if (!supplierEmail) {
+      this.logger.warn(`Impossible d'envoyer l'email : fournisseur "${supplierName}" sans email.`);
+      return;
+    }
+
+    const { businessName, businessEmail, businessPhone } =
+      await this.resolveOwnerRecipients(businessId);
+
+    const formatAmount = (amount: number) => {
+      return new Intl.NumberFormat('fr-TN', {
+        style: 'currency',
+        currency: 'TND',
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }).format(amount);
+    };
+
+    let categoryTitle = 'Clarification Requise';
+    let categoryIcon = '❓';
+    
+    if (disputeCategory) {
+      switch (disputeCategory) {
+        case 'PRICE_DISCREPANCY':
+          categoryTitle = 'Écart de Prix Détecté';
+          categoryIcon = '💰';
+          break;
+        case 'QUANTITY_MISMATCH':
+          categoryTitle = 'Écart de Quantité';
+          categoryIcon = '📦';
+          break;
+        case 'CALCULATION_ERROR':
+          categoryTitle = 'Erreur de Calcul';
+          categoryIcon = '🧮';
+          break;
+        case 'PARTIAL_DELIVERY':
+          categoryTitle = 'Livraison Partielle';
+          categoryIcon = '🚚';
+          break;
+      }
+    }
+
+    let amountsTable = '';
+    if (invoicedAmount !== undefined && expectedAmount !== undefined && discrepancy !== undefined) {
+      amountsTable = `<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:15px;margin:20px 0;">
+<h3 style="margin:0 0 15px 0;font-size:14px;">Comparaison des Montants</h3>
+<table style="width:100%;"><tr><td style="padding:8px 0;">Montant Facturé</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#7c3aed;">${formatAmount(invoicedAmount)}</td></tr>
+<tr><td style="padding:8px 0;">Montant Attendu</td><td style="padding:8px 0;text-align:right;font-weight:600;color:#10b981;">${formatAmount(expectedAmount)}</td></tr>
+<tr style="border-top:2px solid #e5e7eb;"><td style="padding:8px 0;font-weight:600;">Écart</td><td style="padding:8px 0;text-align:right;font-weight:700;color:${discrepancy > 0 ? '#ef4444' : '#10b981'};">${discrepancy > 0 ? '+' : ''}${formatAmount(discrepancy)}</td></tr></table></div>`;
+    }
+
+    // Pas de génération de token - le fournisseur répondra par email
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);color:white;padding:30px 20px;text-align:center;">
+<h1 style="margin:0;font-size:24px;">${categoryIcon} ${categoryTitle}</h1><p style="margin:10px 0 0;">Facture ${invoiceNumber}</p></div>
+<div style="padding:30px 20px;"><p style="font-size:16px;">Bonjour <strong>${supplierName}</strong>,</p>
+<p>Nous avons détecté une différence concernant votre facture <strong>${invoiceNumber}</strong> et souhaitons obtenir des clarifications.</p>
+<div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:15px;margin:20px 0;border-radius:4px;">
+<h3 style="margin:0 0 10px 0;font-size:14px;color:#92400e;">Problème Identifié</h3><p style="margin:0;font-size:13px;color:#78350f;">${disputeReason}</p></div>
+${amountsTable}
+<div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:15px;margin:20px 0;border-radius:4px;">
+<h3 style="margin:0 0 10px 0;font-size:14px;color:#1e40af;">Message</h3><p style="margin:0;font-size:13px;color:#1e3a8a;white-space:pre-wrap;">${clarificationNotes}</p></div>
+<h3>Action Requise</h3><p>Merci de nous fournir par email :</p><ul><li>Explication détaillée de l'écart</li><li>Documents justificatifs si nécessaire</li><li>Confirmation des montants</li></ul>
+
+<div style="text-align:center;margin:30px 0;">
+<a href="mailto:${businessEmail}?subject=RE: Facture ${invoiceNumber} - Litige&body=Bonjour,%0D%0A%0D%0AConcernant la facture ${invoiceNumber}:%0D%0A%0D%0A[Votre réponse ici]%0D%0A%0D%0ACordialement" style="display:inline-block;padding:14px 28px;background:#f59e0b;color:white;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;box-shadow:0 4px 6px rgba(245,158,11,0.3);">📧 Répondre par Email</a>
+<p style="margin:15px 0 0 0;font-size:13px;color:#92400e;">Merci de répondre dans les plus brefs délais</p>
+</div>
+
+<div style="background:#f9fafb;border-radius:8px;padding:15px;margin-top:20px;"><h4 style="margin:0 0 10px 0;font-size:13px;">Contact</h4>
+<p style="margin:5px 0;font-size:13px;"><strong>${businessName}</strong><br>📧 <a href="mailto:${businessEmail}">${businessEmail}</a>${businessPhone ? `<br>📞 ${businessPhone}` : ''}</p></div>
+<p style="margin-top:20px;">Cordialement,<br><strong>${businessName}</strong></p></div>
+<div style="background:#f3f4f6;padding:20px;text-align:center;font-size:12px;color:#6b7280;">
+<p style="margin:0;">Email généré automatiquement © ${new Date().getFullYear()} ${businessName}</p></div></body></html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${businessName}" <${this.from}>`,
+        replyTo: businessEmail || this.from,
+        to: supplierEmail,
+        subject: `${categoryIcon} ${categoryTitle} - Facture ${invoiceNumber}`,
+        html,
+      });
+      this.logger.log(`Email clarification envoyé à ${supplierEmail} pour ${invoiceNumber}`);
+    } catch (error: any) {
+      this.logger.error(`Échec envoi email clarification ${invoiceNumber}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ─── Notification owner : Réponse du fournisseur au litige ───────────────
+  async sendDisputeResponseToOwner(
+    businessId: string,
+    invoice: PurchaseInvoice,
+    responseMessage: string,
+    proposedSolution?: string,
+    proposedAmount?: number,
+  ): Promise<void> {
+    const { recipients, businessName } = await this.resolveOwnerRecipients(businessId);
+    if (!recipients) return;
+
+    const formatAmount = (amount: number) => {
+      return new Intl.NumberFormat('fr-TN', {
+        style: 'currency',
+        currency: 'TND',
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }).format(amount);
+    };
+
+    const proposedSolutionHtml = proposedSolution
+      ? `<div style="background:#e0f2fe;border-left:4px solid #0284c7;padding:15px;margin:20px 0;border-radius:4px;">
+<h3 style="margin:0 0 10px 0;font-size:14px;color:#075985;">Solution Proposée</h3>
+<p style="margin:0;font-size:13px;color:#0c4a6e;white-space:pre-wrap;">${proposedSolution}</p>
+${proposedAmount ? `<p style="margin:10px 0 0 0;font-size:14px;font-weight:600;color:#0284c7;">Montant proposé: ${formatAmount(proposedAmount)}</p>` : ''}
+</div>`
+      : '';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);color:white;padding:30px 20px;text-align:center;">
+<h1 style="margin:0;font-size:24px;">✅ Réponse du Fournisseur</h1>
+<p style="margin:10px 0 0;">Facture ${invoice.invoice_number_supplier}</p></div>
+<div style="padding:30px 20px;">
+<p style="font-size:16px;">Bonjour,</p>
+<p><strong>${invoice.supplier?.name}</strong> a répondu au litige concernant la facture <strong>${invoice.invoice_number_supplier}</strong>.</p>
+<div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:15px;margin:20px 0;border-radius:4px;">
+<h3 style="margin:0 0 10px 0;font-size:14px;color:#92400e;">Message du Fournisseur</h3>
+<p style="margin:0;font-size:13px;color:#78350f;white-space:pre-wrap;">${responseMessage}</p></div>
+${proposedSolutionHtml}
+<div style="background:#f3f4f6;border-radius:8px;padding:15px;margin:20px 0;">
+<h4 style="margin:0 0 10px 0;font-size:13px;">Détails de la Facture</h4>
+<table style="width:100%;font-size:13px;">
+<tr><td style="padding:5px 0;">Montant facturé</td><td style="padding:5px 0;text-align:right;font-weight:600;">${formatAmount(Number(invoice.net_amount))}</td></tr>
+${invoice.supplier_po ? `<tr><td style="padding:5px 0;">Montant BC</td><td style="padding:5px 0;text-align:right;font-weight:600;">${formatAmount(Number(invoice.supplier_po.net_amount))}</td></tr>` : ''}
+</table></div>
+<div style="text-align:center;margin:30px 0;">
+<a href="${this.frontendUrl}/app/purchases/invoices" style="display:inline-block;padding:12px 24px;background:#10b981;color:white;text-decoration:none;border-radius:6px;font-weight:600;">📋 Traiter la Réponse</a>
+</div>
+<p style="margin-top:20px;">Veuillez examiner la réponse et prendre les mesures appropriées.</p>
+<p>Cordialement,<br><strong>Système de Gestion</strong></p></div>
+<div style="background:#f3f4f6;padding:20px;text-align:center;font-size:12px;color:#6b7280;">
+<p style="margin:0;">Email généré automatiquement © ${new Date().getFullYear()} ${businessName}</p></div></body></html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${businessName}" <${this.from}>`,
+        to: recipients,
+        subject: `✅ Réponse du fournisseur - Facture ${invoice.invoice_number_supplier}`,
+        html,
+      });
+      this.logger.log(`Email réponse litige envoyé pour ${invoice.invoice_number_supplier}`);
+    } catch (error: any) {
+      this.logger.error(`Échec envoi email réponse litige: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ─── Notification fournisseur : BC annulé ────────────────────────────────
+  async sendCancellationEmail(po: SupplierPO): Promise<void> {
+    const supplier = po.supplier;
+
+    if (!supplier?.email) {
+      this.logger.warn(`BC ${po.po_number} : fournisseur "${supplier?.name}" sans email.`);
+      return;
+    }
+
+    const { businessName, businessEmail, businessPhone } =
+      await this.resolveOwnerRecipients(po.business_id);
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+<div style="background:#DC2626;padding:24px;color:#fff;"><h1 style="margin:0;">❌ Annulation de commande</h1><p style="margin:4px 0 0;">BC ${po.po_number}</p></div>
+<div style="background:#fff;padding:24px;">
+  <p>Bonjour <strong>${supplier.name}</strong>,</p>
+  <p>Nous vous informons que le bon de commande <strong>${po.po_number}</strong> d'un montant de <strong>${Number(po.net_amount).toFixed(3)} TND TTC</strong> a été annulé.</p>
+  ${po.notes ? `<div style="background:#FEF2F2;border-left:4px solid #DC2626;padding:12px;margin:16px 0;"><p style="margin:0;"><strong>Raison :</strong></p><p style="margin:8px 0 0;">${po.notes}</p></div>` : ''}
+  <p>Si vous avez des questions, n'hésitez pas à nous contacter.</p>
+  <p>Cordialement,<br><strong>${businessName}</strong></p>
+  ${businessEmail ? `<p style="font-size:12px;color:#666;margin-top:20px;">Email : ${businessEmail}</p>` : ''}
+  ${businessPhone ? `<p style="font-size:12px;color:#666;margin:0;">Téléphone : ${businessPhone}</p>` : ''}
+</div>
+</body></html>`;
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${businessName}" <${this.from}>`,
+        replyTo: businessEmail || this.from,
+        to: supplier.email,
+        subject: `❌ Annulation BC ${po.po_number} — ${businessName}`,
+        html,
+      });
+      this.logger.log(`Email annulation BC ${po.po_number} envoyé à ${supplier.email}`);
+    } catch (err: any) {
+      this.logger.error(`Échec envoi email annulation BC ${po.po_number}: ${err.message}`);
+      throw err;
     }
   }
 }

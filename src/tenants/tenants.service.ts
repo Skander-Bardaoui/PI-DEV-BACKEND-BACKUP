@@ -1,5 +1,5 @@
 // src/tenants/tenants.service.ts
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Tenant } from './entities/tenant.entity';
@@ -8,7 +8,6 @@ import { UpdateTenantDto } from './entities/dto/update-tenant.dto';
 import { BusinessMember } from '../businesses/entities/business-member.entity';
 import { Business } from '../businesses/entities/business.entity';
 import { Role } from '../users/enums/role.enum';
-import * as sharp from 'sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 

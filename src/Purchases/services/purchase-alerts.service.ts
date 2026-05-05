@@ -130,10 +130,10 @@ import { AlertSeverity } from '../enum/alertSeverity';
             type:         AlertType.INVOICE_DUE_SOON,
             severity:     days === 1 ? AlertSeverity.DANGER : days === 3 ? AlertSeverity.WARNING : AlertSeverity.INFO,
             title:        `Facture à payer dans ${days} jour${days > 1 ? 's' : ''}`,
-            message:      `La facture ${inv.invoice_number_supplier} de ${inv.supplier?.name} arrive à échéance le ${new Date(inv.due_date).toLocaleDateString('fr-TN')}. Reste à payer : ${remaining.toFixed(3)} TND.`,
+            message:      `La facture ${inv.invoice_number} de ${inv.supplier?.name} arrive à échéance le ${new Date(inv.due_date).toLocaleDateString('fr-TN')}. Reste à payer : ${remaining.toFixed(3)} TND.`,
             entity_type:  'PurchaseInvoice',
             entity_id:    inv.id,
-            entity_label: inv.invoice_number_supplier,
+            entity_label: inv.invoice_number,
             metadata:     { days_remaining: days, remaining_amount: remaining, supplier_name: inv.supplier?.name },
           });
 
@@ -342,10 +342,183 @@ import { AlertSeverity } from '../enum/alertSeverity';
     }
 
     async resolve(businessId: string, alertId: string): Promise<void> {
+      // Récupérer l'alerte avec ses métadonnées
+      const alert = await this.alertRepo.findOne({
+        where: { id: alertId, business_id: businessId },
+      });
+
+      if (!alert) {
+        throw new Error('Alerte introuvable');
+      }
+
+      // Effectuer l'action appropriée selon le type d'alerte
+      try {
+        switch (alert.type) {
+          case AlertType.PO_AWAITING_CONFIRM:
+            // Renvoyer le BC au fournisseur
+            await this.resendPOToSupplier(alert.entity_id);
+            this.logger.log(`✅ BC ${alert.entity_label} renvoyé au fournisseur`);
+            break;
+
+          case AlertType.INVOICE_DUE_SOON:
+          case AlertType.INVOICE_OVERDUE:
+            // Marquer la facture comme prioritaire ou envoyer un rappel
+            this.logger.log(`ℹ️ Facture ${alert.entity_label} marquée pour traitement`);
+            break;
+
+          case AlertType.PO_NOT_RECEIVED:
+            // Créer une notification pour vérifier la livraison
+            this.logger.log(`ℹ️ BC ${alert.entity_label} marqué pour vérification`);
+            break;
+
+          case AlertType.SUPPLIER_HIGH_DEBT:
+            // Marquer le fournisseur pour révision
+            this.logger.log(`ℹ️ Fournisseur ${alert.entity_label} marqué pour révision`);
+            break;
+
+          default:
+            this.logger.log(`ℹ️ Alerte ${alert.type} résolue sans action spécifique`);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+        this.logger.error(`❌ Erreur lors de la résolution de l'alerte: ${errorMessage}`);
+        // On continue quand même pour marquer l'alerte comme résolue
+      }
+
+      // Marquer l'alerte comme résolue
       await this.alertRepo.update(
         { id: alertId, business_id: businessId },
         { status: AlertStatus.RESOLVED },
       );
+    }
+
+    // Méthode privée pour renvoyer un BC au fournisseur
+    private async resendPOToSupplier(poId: string): Promise<void> {
+      const po = await this.poRepo.findOne({
+        where: { id: poId },
+        relations: ['supplier', 'items', 'items.product', 'business'],
+      });
+
+      if (!po || !po.supplier?.email) {
+        throw new Error('BC ou email fournisseur introuvable');
+      }
+
+      // Générer le contenu de l'email
+      const itemsHtml = po.items
+        ?.map(
+          (item, idx) => `
+          <tr style="border-bottom:1px solid #E5E7EB;">
+            <td style="padding:12px 8px;text-align:center;">${idx + 1}</td>
+            <td style="padding:12px 8px;">${item.description}</td>
+            <td style="padding:12px 8px;text-align:center;">${item.quantity_ordered}</td>
+            <td style="padding:12px 8px;text-align:right;">${Number(item.unit_price_ht).toFixed(3)} TND</td>
+            <td style="padding:12px 8px;text-align:right;">${(item.quantity_ordered * Number(item.unit_price_ht)).toFixed(3)} TND</td>
+          </tr>
+        `,
+        )
+        .join('');
+
+      const emailHtml = `
+        <div style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;background:#fff;">
+          <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:32px 24px;text-align:center;">
+            <h1 style="color:#fff;margin:0;font-size:28px;font-weight:bold;">📋 Rappel - Bon de Commande</h1>
+          </div>
+
+          <div style="padding:32px 24px;">
+            <div style="background:#FEF3C7;border-left:4px solid #F59E0B;padding:16px;margin-bottom:24px;border-radius:4px;">
+              <p style="margin:0;color:#92400E;font-size:14px;">
+                <strong>⚠️ Rappel:</strong> Ce bon de commande est en attente de confirmation depuis plusieurs jours.
+              </p>
+            </div>
+
+            <p style="font-size:16px;color:#374151;line-height:1.6;">
+              Bonjour <strong>${po.supplier.name}</strong>,
+            </p>
+            <p style="font-size:14px;color:#6B7280;line-height:1.6;">
+              Nous vous rappelons que le bon de commande <strong>${po.po_number}</strong> est toujours en attente de votre confirmation.
+            </p>
+
+            <div style="background:#F9FAFB;padding:20px;border-radius:8px;margin:24px 0;">
+              <table style="width:100%;border-collapse:collapse;">
+                <tr>
+                  <td style="padding:8px 0;color:#6B7280;font-size:13px;">N° BC:</td>
+                  <td style="padding:8px 0;color:#111827;font-weight:600;text-align:right;">${po.po_number}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6B7280;font-size:13px;">Date d'envoi:</td>
+                  <td style="padding:8px 0;color:#111827;text-align:right;">${new Date(po.sent_at || po.created_at).toLocaleDateString('fr-TN')}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6B7280;font-size:13px;">Livraison attendue:</td>
+                  <td style="padding:8px 0;color:#111827;text-align:right;">${po.expected_delivery ? new Date(po.expected_delivery).toLocaleDateString('fr-TN') : 'Non définie'}</td>
+                </tr>
+                <tr>
+                  <td style="padding:8px 0;color:#6B7280;font-size:13px;font-weight:600;">Montant TTC:</td>
+                  <td style="padding:8px 0;color:#111827;font-weight:700;font-size:18px;text-align:right;">${Number(po.net_amount).toFixed(3)} TND</td>
+                </tr>
+              </table>
+            </div>
+
+            <h3 style="color:#111827;font-size:16px;margin:24px 0 12px;">Articles commandés</h3>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;">
+              <thead>
+                <tr style="background:#F3F4F6;">
+                  <th style="padding:12px 8px;text-align:center;font-size:13px;color:#6B7280;">#</th>
+                  <th style="padding:12px 8px;text-align:left;font-size:13px;color:#6B7280;">Description</th>
+                  <th style="padding:12px 8px;text-align:center;font-size:13px;color:#6B7280;">Qté</th>
+                  <th style="padding:12px 8px;text-align:right;font-size:13px;color:#6B7280;">P.U. HT</th>
+                  <th style="padding:12px 8px;text-align:right;font-size:13px;color:#6B7280;">Total HT</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+
+            ${po.notes ? `
+              <div style="margin-top:24px;padding:16px;background:#FEF9E7;border-left:4px solid #F59E0B;border-radius:4px;">
+                <p style="margin:0;font-size:13px;color:#92400E;"><strong>📝 Notes:</strong></p>
+                <p style="margin:8px 0 0;font-size:13px;color:#6B7280;">${po.notes}</p>
+              </div>
+            ` : ''}
+
+            <div style="margin-top:32px;padding:20px;background:#EEF2FF;border-radius:8px;text-align:center;">
+              <p style="margin:0 0 16px;font-size:14px;color:#4338CA;">
+                Merci de confirmer la réception de ce bon de commande dans les plus brefs délais.
+              </p>
+              <a href="${this.config.get('FRONTEND_URL')}/supplier-portal" 
+                 style="display:inline-block;padding:12px 32px;background:#4F46E5;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+                Accéder au portail fournisseur
+              </a>
+            </div>
+
+            <div style="margin-top:32px;padding-top:24px;border-top:1px solid #E5E7EB;">
+              <p style="font-size:13px;color:#6B7280;margin:0;">
+                Cordialement,<br>
+                <strong>${po.business?.name || 'L\'équipe'}</strong>
+              </p>
+              ${po.business?.email ? `<p style="font-size:12px;color:#9CA3AF;margin:8px 0 0;">📧 ${po.business.email}</p>` : ''}
+              ${po.business?.phone ? `<p style="font-size:12px;color:#9CA3AF;margin:4px 0 0;">📞 ${po.business.phone}</p>` : ''}
+            </div>
+          </div>
+
+          <div style="background:#F9FAFB;padding:16px 24px;text-align:center;border-top:1px solid #E5E7EB;">
+            <p style="font-size:11px;color:#9CA3AF;margin:0;">
+              Cet email est un rappel automatique. Si vous avez déjà confirmé ce BC, veuillez ignorer ce message.
+            </p>
+          </div>
+        </div>
+      `;
+
+      // Envoyer l'email
+      await this.transporter.sendMail({
+        from: `"${po.business?.name || 'Achats'}" <${this.from}>`,
+        to: po.supplier.email,
+        subject: `[RAPPEL] Bon de commande ${po.po_number} en attente de confirmation`,
+        html: emailHtml,
+      });
+
+      this.logger.log(`✅ Email de rappel envoyé à ${po.supplier.name} (${po.supplier.email})`);
     }
 
     async snooze(businessId: string, alertId: string, hours: number): Promise<void> {

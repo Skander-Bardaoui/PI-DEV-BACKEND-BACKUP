@@ -26,7 +26,7 @@ export class AccountsController {
     @Req() req: any,
     @Body(new ZodValidationPipe(CreateAccountSchema)) dto: any,
   ) {
-    return this.accountsService.create(req.user.business_id, dto);
+    return this.accountsService.create(req.user.business_id, req.user.id, dto);
   }
 
   // GET /accounts
@@ -66,7 +66,7 @@ export class AccountsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(UpdateAccountSchema)) dto: any,
   ) {
-    return this.accountsService.update(req.user.business_id, id, dto);
+    return this.accountsService.update(req.user.business_id, req.user.id, id, dto);
   }
 
   // PATCH /accounts/:id/toggle-active
@@ -75,6 +75,6 @@ export class AccountsController {
     @Req() req: any,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.accountsService.toggleActive(req.user.business_id, id);
+    return this.accountsService.toggleActive(req.user.business_id, req.user.id, id);
   }
 }

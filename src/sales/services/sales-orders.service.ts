@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -20,6 +21,10 @@ import { SalesMailService } from './sales-mail.service';
 import { ClientPortalService } from './client-portal.service';
 import { CreateSalesOrderDto } from '../dto/create-sales-order.dto';
 import { UpdateSalesOrderDto } from '../dto/update-sales-order.dto';
+import { StockMovementsService } from '../../stock/services/stock-movements/stock-movements.service';
+import { StockMovementType } from '../../stock/enums/stock-movement-type.enum';
+import { StockMovement } from '../../stock/entities/stock-movement.entity';
+import { Product, ProductType } from '../../stock/entities/product.entity';
 
 const TRANSITIONS: Record<SalesOrderStatus, SalesOrderStatus[]> = {
   [SalesOrderStatus.CONFIRMED]: [SalesOrderStatus.IN_PROGRESS, SalesOrderStatus.CANCELLED],
@@ -31,6 +36,8 @@ const TRANSITIONS: Record<SalesOrderStatus, SalesOrderStatus[]> = {
 
 @Injectable()
 export class SalesOrdersService {
+  private readonly logger = new Logger(SalesOrdersService.name);
+
   constructor(
     @InjectRepository(SalesOrder)
     private readonly orderRepo: Repository<SalesOrder>,
@@ -50,16 +57,35 @@ export class SalesOrdersService {
     @InjectRepository(DeliveryNoteItem)
     private readonly deliveryNoteItemRepo: Repository<DeliveryNoteItem>,
 
+    @InjectRepository(StockMovement)
+    private readonly stockMovementRepo: Repository<StockMovement>,
+
+    @InjectRepository(Product)
+    private readonly productRepo: Repository<Product>,
+
     @Inject(forwardRef(() => SalesMailService))
     private readonly mailService: SalesMailService,
 
     @Inject(forwardRef(() => ClientPortalService))
     private readonly portalService: ClientPortalService,
 
+    private readonly stockMovementsService: StockMovementsService,
+
     private readonly dataSource: DataSource,
   ) {}
 
   async create(businessId: string, dto: CreateSalesOrderDto): Promise<SalesOrder> {
+    // ✅ CRITICAL VALIDATION: Ensure all items have productId
+    for (let i = 0; i < dto.items.length; i++) {
+      const item = dto.items[i];
+      if (!item.productId || item.productId.trim() === '') {
+        throw new BadRequestException(
+          `Ligne ${i + 1}: Le produit est obligatoire pour le suivi des stocks. ` +
+          `Description: "${item.description}". Veuillez sélectionner un produit du catalogue.`
+        );
+      }
+    }
+
     return this.dataSource.transaction(async (manager) => {
       const orderNumber = await this.generateNumber(businessId, manager);
       const { items: itemsDto, ...rest } = dto;
@@ -88,10 +114,15 @@ export class SalesOrdersService {
       );
       await manager.save(SalesOrderItem, lines);
 
-      return manager.findOne(SalesOrder, {
+      const result = await manager.findOne(SalesOrder, {
         where: { id: saved.id },
         relations: ['items', 'client'],
-      }) as Promise<SalesOrder>;
+      }) as SalesOrder;
+
+      // DO NOT create stock movements here - they should be created when order is DELIVERED
+      // Stock movements will be created in markDelivered() method
+
+      return result;
     });
   }
 
@@ -136,37 +167,102 @@ export class SalesOrdersService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      if (dto.expectedDelivery !== undefined)
-        order.expectedDelivery = dto.expectedDelivery ? new Date(dto.expectedDelivery) : null;
-      if (dto.notes !== undefined)
-        order.notes = dto.notes;
+      try {
+        if (dto.expectedDelivery !== undefined)
+          order.expectedDelivery = dto.expectedDelivery ? new Date(dto.expectedDelivery) : null;
+        if (dto.notes !== undefined)
+          order.notes = dto.notes;
 
-      if (dto.items?.length) {
-        await manager.delete(SalesOrderItem, { salesOrderId: id });
+        if (dto.items?.length) {
+          // Reverse stock movements for old items
+          try {
+            await this.reverseStockMovements(businessId, id, manager);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? error.stack : undefined;
+            this.logger.error(`Failed to reverse stock movements: ${errorMessage}`, errorStack);
+            // Continue with update even if reversal fails
+          }
 
-        const { subtotal, taxAmount, netAmount, items } = this.calcTotals(dto.items);
-        order.subtotal = subtotal;
-        order.taxAmount = taxAmount;
-        order.total = subtotal + taxAmount;
-        order.netAmount = netAmount;
+          await manager.delete(SalesOrderItem, { salesOrderId: id });
 
-        await manager.save(SalesOrder, order);
+          const { subtotal, taxAmount, netAmount, items } = this.calcTotals(dto.items);
+          order.subtotal = subtotal;
+          order.taxAmount = taxAmount;
+          order.total = subtotal + taxAmount;
+          order.netAmount = netAmount;
 
-        const lines = items.map((item) =>
-          manager.create(SalesOrderItem, {
-            ...item,
-            salesOrderId: id,
-          }),
-        );
-        await manager.save(SalesOrderItem, lines);
-      } else {
-        await manager.save(SalesOrder, order);
+          await manager.save(SalesOrder, order);
+
+          const lines = items.map((item) =>
+            manager.create(SalesOrderItem, {
+              ...item,
+              salesOrderId: id,
+            }),
+          );
+          await manager.save(SalesOrderItem, lines);
+
+          // Create new stock movements for updated items
+          for (const item of lines) {
+            if (item.productId) {
+              try {
+                // ==================== Alaa change for service type ====================
+                // Services and digital products do not affect stock — skip movement creation
+                const product = await manager.findOne(Product, {
+                  where: { id: item.productId },
+                });
+                if (product && (product.type === ProductType.SERVICE || product.type === ProductType.DIGITAL)) {
+                  continue;
+                }
+                // ====================================================================
+
+                if (product) {
+                  const quantityBefore = Number(product.quantity);
+                  const quantityChange = -Math.abs(Number(item.quantity)); // Negative for sales
+                  const quantityAfter = Number((quantityBefore + quantityChange).toFixed(3));
+
+                  // Create stock movement directly in the transaction
+                  const movement = manager.create(StockMovement, {
+                    business_id: businessId,
+                    product_id: item.productId,
+                    type: StockMovementType.SORTIE_VENTE,
+                    quantity: quantityChange,
+                    quantity_before: quantityBefore,
+                    quantity_after: quantityAfter,
+                    reference_type: 'SALES_ORDER',
+                    reference_id: id,
+                    note: `Sortie vente - Commande ${order.orderNumber}`,
+                  });
+                  await manager.save(StockMovement, movement);
+
+                  // Update product quantity
+                  product.quantity = quantityAfter;
+                  await manager.save(Product, product);
+                }
+              } catch (error) {
+                this.logger.error(`Failed to create stock movement for product ${item.productId}:`, error);
+                // Continue with other items even if one fails
+              }
+            }
+          }
+        } else {
+          await manager.save(SalesOrder, order);
+        }
+
+        const result = await manager.findOne(SalesOrder, {
+          where: { id },
+          relations: ['items', 'client'],
+        });
+
+        if (!result) {
+          throw new NotFoundException(`Sales order not found after update`);
+        }
+
+        return result;
+      } catch (error) {
+        this.logger.error(`Failed to update sales order ${id}:`, error);
+        throw error;
       }
-
-      return manager.findOne(SalesOrder, {
-        where: { id },
-        relations: ['items', 'client'],
-      }) as Promise<SalesOrder>;
     });
   }
 
@@ -188,27 +284,89 @@ export class SalesOrdersService {
 
       const savedDeliveryNote = await manager.save(DeliveryNote, deliveryNote);
 
-      const deliveryNoteItems = order.items.map((item) =>
-        manager.create(DeliveryNoteItem, {
+      const deliveryNoteItems = order.items.map((item) => {
+        // Validate that productId is present
+        if (!item.productId) {
+          throw new Error(`Product ID is required for item: ${item.description}`);
+        }
+        
+        return manager.create(DeliveryNoteItem, {
           deliveryNoteId: savedDeliveryNote.id,
+          productId: item.productId, // CRITICAL: Include productId from sales order item
           description: item.description,
           quantity: item.quantity,
           deliveredQuantity: 0,
-        }),
-      );
+        });
+      });
 
       await manager.save(DeliveryNoteItem, deliveryNoteItems);
 
       order.status = SalesOrderStatus.IN_PROGRESS;
       await manager.save(SalesOrder, order);
 
+      // DO NOT create stock movements here - they should be created when order is DELIVERED
+      // Stock movements will be created in markDelivered() method
+
       return this.findOne(businessId, id);
     });
   }
 
   async markDelivered(businessId: string, id: string) {
-    return this.transition(businessId, id, SalesOrderStatus.DELIVERED, (o) => {
-      o.deliveryDate = new Date();
+    const order = await this.findOne(businessId, id);
+    
+    return this.dataSource.transaction(async (manager) => {
+      // Update order status
+      order.status = SalesOrderStatus.DELIVERED;
+      order.deliveryDate = new Date();
+      await manager.save(SalesOrder, order);
+
+      // Create stock movements for each item with productId when order is DELIVERED
+      for (const item of order.items) {
+        if (item.productId) {
+          try {
+            // Check if product is physical (not service or digital)
+            const product = await manager.findOne(Product, {
+              where: { id: item.productId },
+            });
+            
+            if (product && (product.type === ProductType.SERVICE || product.type === ProductType.DIGITAL)) {
+              this.logger.log(`Skipping stock movement for service/digital product ${item.productId}`);
+              continue;
+            }
+
+            if (product) {
+              const quantityBefore = Number(product.quantity);
+              const quantityChange = -Math.abs(Number(item.quantity)); // Negative for sales
+              const quantityAfter = Number((quantityBefore + quantityChange).toFixed(3));
+
+              // Create stock movement
+              const movement = manager.create(StockMovement, {
+                business_id: businessId,
+                product_id: item.productId,
+                type: StockMovementType.SORTIE_VENTE,
+                quantity: quantityChange,
+                quantity_before: quantityBefore,
+                quantity_after: quantityAfter,
+                reference_type: 'SALES_ORDER',
+                reference_id: order.id,
+                note: `Sortie vente - Commande ${order.orderNumber} livrée`,
+              });
+              await manager.save(StockMovement, movement);
+
+              // Update product quantity
+              product.quantity = quantityAfter;
+              await manager.save(Product, product);
+              
+              this.logger.log(`Stock movement created for product ${item.productId}: ${quantityBefore} -> ${quantityAfter}`);
+            }
+          } catch (error) {
+            this.logger.error(`Failed to create stock movement for product ${item.productId}:`, error);
+            // Continue with other items even if one fails
+          }
+        }
+      }
+
+      return this.findOne(businessId, id);
     });
   }
 
@@ -237,9 +395,60 @@ export class SalesOrdersService {
         );
       }
 
+      // Reverse stock movements before deleting
+      await this.reverseStockMovements(businessId, id, manager);
+
       await manager.delete(SalesOrderItem, { salesOrderId: id });
       await manager.delete(SalesOrder, { id, businessId });
     });
+  }
+
+  /**
+   * Helper method to reverse stock movements for a sales order
+   */
+  private async reverseStockMovements(
+    businessId: string,
+    salesOrderId: string,
+    manager: any,
+  ): Promise<void> {
+    // Find all stock movements for this sales order
+    const movements = await manager.find(StockMovement, {
+      where: {
+        business_id: businessId,
+        reference_type: 'SALES_ORDER',
+        reference_id: salesOrderId,
+      },
+    });
+
+    this.logger.log(`Found ${movements.length} stock movements to reverse for sales order ${salesOrderId}`);
+
+    // Reverse each movement by updating product quantities
+    for (const movement of movements) {
+      try {
+        const product = await manager.findOne(Product, {
+          where: { id: movement.product_id },
+        });
+
+        if (product) {
+          // Reverse the quantity change
+          // If movement.quantity is negative (SORTIE), subtracting it will add back to stock
+          // If movement.quantity is positive (ENTREE), subtracting it will remove from stock
+          const newQuantity = Number(product.quantity) - Number(movement.quantity);
+          this.logger.log(`Reversing movement for product ${product.id}: ${product.quantity} - ${movement.quantity} = ${newQuantity}`);
+          
+          product.quantity = newQuantity;
+          await manager.save(Product, product);
+        } else {
+          this.logger.warn(`Product ${movement.product_id} not found for movement ${movement.id}`);
+        }
+
+        // Delete the movement record
+        await manager.remove(StockMovement, movement);
+      } catch (error) {
+        this.logger.error(`Failed to reverse stock movement ${movement.id}:`, error);
+        // Don't throw - continue with other movements
+      }
+    }
   }
 
   private async transition(
@@ -352,9 +561,20 @@ export class SalesOrdersService {
   private getLogoBase64(): string {
     try {
       const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+      this.logger.log(`Tentative de chargement du logo depuis: ${logoPath}`);
+      
+      if (!fs.existsSync(logoPath)) {
+        this.logger.warn(`Logo non trouvé à: ${logoPath}`);
+        return '';
+      }
+      
       const logoBuffer = fs.readFileSync(logoPath);
-      return `data:image/png;base64,${logoBuffer.toString('base64')}`;
-    } catch {
+      const base64Logo = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+      this.logger.log(`Logo chargé avec succès, taille: ${logoBuffer.length} bytes`);
+      return base64Logo;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Erreur lors du chargement du logo: ${errorMessage}`);
       return '';
     }
   }
@@ -446,9 +666,14 @@ export class SalesOrdersService {
       order.id,
     );
 
-    await this.sendEmailWithPortal(order, order.client.email, portalToken);
-
-    return { message: `Email de confirmation envoyé à ${order.client.email}` };
+    try {
+      await this.sendEmailWithPortal(order, order.client.email, portalToken);
+      return { message: `Email de confirmation envoyé à ${order.client.email}` };
+    } catch (error) {
+      console.error('Error sending order confirmation email:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      throw new BadRequestException(`Erreur lors de l'envoi de l'email: ${errorMessage}`);
+    }
   }
 
   private async sendEmailWithPortal(
@@ -457,12 +682,11 @@ export class SalesOrdersService {
     portalToken: string,
   ): Promise<void> {
     const nodemailer = require('nodemailer');
-    const frontendUrl = 'http://localhost:5173';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     const portalUrl = `${frontendUrl}/client-portal?token=${portalToken}`;
-    const logoBase64 = this.getLogoBase64();
 
     const businessName = order.business?.name || 'Votre Entreprise';
-    const businessEmail = order.business?.email || 'novaentra2026@gmail.com';
+    const businessEmail = order.business?.email || process.env.GMAIL_USER || 'novaentra2026@gmail.com';
     const businessPhone = order.business?.phone || '';
     const businessMF = order.business?.tax_id || '';
 
@@ -512,11 +736,8 @@ export class SalesOrdersService {
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="vertical-align:middle;">
-                    ${logoBase64
-                      ? `<img src="${logoBase64}" alt="${businessName}" height="44"
-                          style="display:block;height:44px;max-width:160px;object-fit:contain;filter:brightness(0) invert(1);" />`
-                      : `<p style="margin:0;font-size:20px;font-weight:800;color:#ffffff;">${businessName}</p>`
-                    }
+                    <img src="cid:company-logo" alt="${businessName}" height="44"
+                          style="display:block;height:44px;max-width:160px;object-fit:contain;filter:brightness(0) invert(1);" />
                     <p style="margin:6px 0 0;font-size:14px;font-weight:600;color:rgba(255,255,255,0.7);">${businessName}</p>
                   </td>
                   <td style="text-align:right;vertical-align:middle;">
@@ -705,16 +926,25 @@ export class SalesOrdersService {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: 'novaentra2026@gmail.com',
-        pass: 'enrqztjhkqbryrar',
+        user: process.env.GMAIL_USER || 'novaentra2026@gmail.com',
+        pass: process.env.GMAIL_PASS || 'enrqztjhkqbryrar',
       },
     });
 
+    const attachments: any[] = [
+      {
+        filename: 'logo.png',
+        path: path.join(process.cwd(), 'public', 'logo.png'),
+        cid: 'company-logo',
+      },
+    ];
+
     await transporter.sendMail({
-      from: `"${businessName}" <novaentra2026@gmail.com>`,
+      from: `"${businessName}" <${process.env.GMAIL_USER || 'novaentra2026@gmail.com'}>`,
       to: recipientEmail,
       subject: `🧾 Commande ${order.orderNumber} — Confirmation requise`,
       html,
+      attachments,
     });
   }
 }

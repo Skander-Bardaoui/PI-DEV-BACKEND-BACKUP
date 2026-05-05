@@ -1,42 +1,41 @@
-  // src/Purchases/entities/supplier-portal-token.entity.ts
-  import {
-    Entity, PrimaryGeneratedColumn, Column,
-    CreateDateColumn, ManyToOne, JoinColumn,
-  } from 'typeorm';
-  import { Supplier }    from './supplier.entity';
-  import { SupplierPO }  from './supplier-po.entity';
+// src/Purchases/entities/supplier-portal-token.entity.ts
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  ManyToOne,
+  JoinColumn,
+  CreateDateColumn,
+} from 'typeorm';
+import { Supplier } from './supplier.entity';
 
-  @Entity('supplier_portal_tokens')
-  export class SupplierPortalToken {
-    @PrimaryGeneratedColumn('uuid')
-    id: string;
+@Entity('supplier_portal_tokens')
+export class SupplierPortalToken {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-    @Column({ unique: true })
-    token: string;           // JWT signé
+  @Column({ type: 'varchar', length: 255, unique: true })
+  token: string;
 
-    @Column()
-    business_id: string;
+  @Column({ type: 'uuid' })
+  supplier_id: string;
 
-    @Column()
-    supplier_id: string;
+  @ManyToOne(() => Supplier)
+  @JoinColumn({ name: 'supplier_id' })
+  supplier: Supplier;
 
-    @ManyToOne(() => Supplier, { onDelete: 'CASCADE' })
-    @JoinColumn({ name: 'supplier_id' })
-    supplier: Supplier;
+  @Column({ type: 'uuid' })
+  business_id: string;
 
-      @Column({ type: 'uuid', nullable: true })
-      supplier_po_id: string | null;
+  @Column({ type: 'timestamp' })
+  expires_at: Date;
 
-      @ManyToOne(() => SupplierPO, { nullable: true, onDelete: 'SET NULL' })
-      @JoinColumn({ name: 'supplier_po_id' })
-      supplier_po: SupplierPO | null;
+  @Column({ type: 'boolean', default: false })
+  used: boolean;
 
-    @Column({ type: 'timestamp' })
-    expires_at: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  used_at: Date;
 
-    @Column({ default: false })
-    is_used: boolean;        // révoqué après confirmation/refus
-
-    @CreateDateColumn()
-    created_at: Date;
-  }
+  @CreateDateColumn()
+  created_at: Date;
+}

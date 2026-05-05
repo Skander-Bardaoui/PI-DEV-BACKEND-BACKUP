@@ -157,18 +157,9 @@ export function parseGeminiJson(aiText: string): any {
   logger.error(`Impossible de parser le JSON après 7 tentatives`);
   logger.debug(`JSON reçu (complet): ${cleaned}`);
   
-  // Retourner un objet par défaut au lieu de lancer une erreur
-  logger.warn('Retour d\'un objet par défaut pour éviter l\'échec complet');
-  return {
-    confidence_score: 0,
-    risk_level: 'CRITICAL',
-    recommended_action: 'MANUAL_REVIEW',
-    explanation: 'Erreur de parsing - revue manuelle requise',
-    key_findings: [],
-    suggested_next_steps: ['Vérifier manuellement les données'],
-    dispute_category: '',
-    estimated_resolution_time: '1-2 jours ouvrés',
-  };
+  // Retourner un objet vide pour que l'appelant gère l'erreur
+  logger.warn('Retour d\'un objet vide - parsing impossible');
+  return {};
 }
 
 /**

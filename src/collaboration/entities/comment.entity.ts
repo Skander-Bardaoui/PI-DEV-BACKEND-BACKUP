@@ -12,8 +12,8 @@ import { User } from '../../users/entities/user.entity';
 import { Task } from './task.entity';
 import { Quote } from '../../sales/entities/quote.entity';
 import { SalesOrder } from '../../sales/entities/sales-order.entity';
-import { SupplierPO } from 'src/Purchases/entities/supplier-po.entity';
-import { PurchaseInvoice } from 'src/Purchases/entities/purchase-invoice.entity';
+import { SupplierPO } from '../../Purchases/entities/supplier-po.entity';
+import { PurchaseInvoice } from '../../Purchases/entities/purchase-invoice.entity';
 
 
 export enum CommentEntityType {
@@ -53,26 +53,9 @@ export class Comment {
   @Index()
   entityId: string;
 
-  // Relations spécifiques (optionnelles, selon entityType)
-  @ManyToOne(() => Task, (task) => task.comments, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  task: Task | null;
-
-  @ManyToOne(() => Quote, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  quote: Quote | null;
-
-  @ManyToOne(() => SalesOrder, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  salesOrder: SalesOrder | null;
-
-  @ManyToOne(() => SupplierPO, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  supplierPO: SupplierPO | null;
-
-  @ManyToOne(() => PurchaseInvoice, { nullable: true })
-  @JoinColumn({ name: 'entityId' })
-  purchaseInvoice: PurchaseInvoice | null;
+  // Note: We use a polymorphic relationship approach
+  // The actual entity is determined by entityType and entityId
+  // No direct foreign key relationships to avoid conflicts
 
   @Column('text')
   content: string;

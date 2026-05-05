@@ -1,4 +1,5 @@
-  // src/Purchases/services/goods-receipts.service.ts
+
+// src/Purchases/services/goods-receipts.service.ts
   import {
     Injectable, NotFoundException, BadRequestException, Logger, Optional,
   } from '@nestjs/common';
@@ -12,6 +13,8 @@
   import { POStatus }           from '../enum/po-status.enum';
   import { CreateGoodsReceiptDto } from '../dto/create-goods-receipt.dto';
   import { StockMovementsService } from '../../stock/services/stock-movements/stock-movements.service';
+  import { StockMovementType } from '../../stock/enums/stock-movement-type.enum';
+  import { Product, ProductType } from '../../stock/entities/product.entity';
 
   @Injectable()
   export class GoodsReceiptsService {
@@ -24,6 +27,9 @@
 
       @InjectRepository(GoodsReceiptItem)
       private readonly grItemRepo: Repository<GoodsReceiptItem>,
+
+      @InjectRepository(Product)
+      private readonly productRepo: Repository<Product>,
 
       private readonly supplierPOsService: SupplierPOsService,
       private readonly dataSource: DataSource,
@@ -39,6 +45,11 @@
     userId: string,
   ): Promise<GoodsReceipt> {
 
+    this.logger.log(`Creating goods receipt for PO ${poId}, business ${businessId}`);
+    this.logger.debug(`DTO received: ${JSON.stringify(dto)}`);
+    this.logger.debug(`DTO.items type: ${typeof dto.items}, isArray: ${Array.isArray(dto.items)}`);
+    this.logger.debug(`DTO.items value: ${JSON.stringify(dto.items)}`);
+
     const po = await this.supplierPOsService.findOne(businessId, poId);
 
     if (![POStatus.CONFIRMED, POStatus.PARTIALLY_RECEIVED].includes(po.status)) {
@@ -51,6 +62,35 @@
     const supplierId = po.supplier_id;
     if (!supplierId) {
       throw new BadRequestException('BC sans fournisseur associé.');
+    }
+
+    // Validation de la date de réception
+    if (dto.receipt_date) {
+      try {
+        const receiptDate = new Date(dto.receipt_date);
+        const poDate = new Date(po.created_at);
+        
+        // Normaliser les dates pour comparer uniquement jour/mois/année
+        receiptDate.setHours(0, 0, 0, 0);
+        poDate.setHours(0, 0, 0, 0);
+        
+        if (receiptDate < poDate) {
+          const poDateStr = poDate.toISOString().split('T')[0];
+          throw new BadRequestException(
+            `La date de réception doit être supérieure ou égale à la date du bon de commande (${poDateStr})`
+          );
+        }
+        
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        if (receiptDate > today) {
+          throw new BadRequestException('La date de réception ne peut pas être dans le futur');
+        }
+      } catch (err) {
+        if (err instanceof BadRequestException) throw err;
+        this.logger.error(`Error validating receipt_date: ${err}`);
+        throw new BadRequestException('Date de réception invalide');
+      }
     }
 
     const poItems = await this.dataSource
@@ -69,6 +109,7 @@
 
       // ✅ génération correcte du numéro
       const gr_number = await this.generateNumber(businessId, qr.manager);
+      this.logger.log(`Generated GR number: ${gr_number}`);
 
       const gr = qr.manager.create(GoodsReceipt, {
         gr_number,
@@ -81,6 +122,7 @@
       });
 
       const savedGR = await qr.manager.save(GoodsReceipt, gr);
+      this.logger.log(`Saved GR with ID: ${savedGR.id}`);
 
       const grItems: GoodsReceiptItem[] = [];
 
@@ -109,8 +151,10 @@
       await this.supplierPOsService.updateStatusAfterReceipt(businessId, poId, qr.manager);
 
       await qr.commitTransaction();
+      this.logger.log(`Successfully created goods receipt ${gr_number}`);
 
-    //  await this.updateStock(businessId, grItems, userId);
+      // Update stock after successful transaction
+      await this.updateStock(businessId, grItems, userId);
 
       return this.findOne(businessId, savedGR.id);
 
@@ -129,8 +173,8 @@
     async findAllByPO(businessId: string, poId: string): Promise<GoodsReceipt[]> {
       await this.supplierPOsService.findOne(businessId, poId);
       return this.grRepo.find({
-        where:     { supplier_po_id: poId, business_id: businessId },
-        relations: ['items'],
+        where:     { supplier_po_id: poId, business_id: businessId, is_invoiced: false },
+        relations: ['items', 'items.supplier_po_item'],
         order:     { created_at: 'DESC' },
       });
     }
@@ -148,6 +192,14 @@
       lines: CreateGoodsReceiptDto['items'],
       poItemsMap: Map<string, SupplierPOItem>,
     ) {
+      if (!lines || !Array.isArray(lines)) {
+        throw new BadRequestException('Les lignes du bon de réception doivent être un tableau');
+      }
+      
+      if (lines.length === 0) {
+        throw new BadRequestException('Le bon de réception doit contenir au moins une ligne');
+      }
+      
       for (const line of lines) {
         const poItem = poItemsMap.get(line.supplier_po_item_id);
         if (!poItem) {
@@ -173,17 +225,20 @@
     private async generateNumber(businessId: string, manager: any): Promise<string> {
       const year   = new Date().getFullYear();
       const prefix = `BR-${year}-`;
+      
+      // PostgreSQL uses SUBSTR or RIGHT for substring operations
       const result = await manager.query(
-        `SELECT COALESCE(MAX(CAST(SUBSTRING(gr_number FROM ${prefix.length + 1}) AS INTEGER)), 0) + 1 AS next_seq
+        `SELECT COALESCE(MAX(CAST(SUBSTR(gr_number, LENGTH($2) + 1) AS INTEGER)), 0) + 1 AS next_seq
         FROM goods_receipts
-        WHERE business_id = $1 AND gr_number LIKE $2`,
-        [businessId, `${prefix}%`],
+        WHERE business_id = $1 AND gr_number LIKE $2 || '%'`,
+        [businessId, prefix],
       );
+      
       const seq = String(result[0]?.next_seq ?? 1).padStart(4, '0');
       return `${prefix}${seq}`;
     }
 
-    /*private async updateStock(
+    private async updateStock(
       businessId: string,
       items: GoodsReceiptItem[],
       userId: string,
@@ -193,7 +248,7 @@
         return;
       }
       
-      // ANOMALIE 7 FIX: Implémentation de la mise à jour du stock
+      // Create stock movements for all received items
       for (const item of items) {
         if (!item.product_id) {
           this.logger.debug(`Ligne BR sans product_id, stock non mis à jour`);
@@ -201,19 +256,34 @@
         }
         
         try {
-          await this.stockMovementsService.createMovement({
-            business_id: businessId,
-            product_id: item.product_id,
-            movement_type: 'IN',
-            quantity: Number(item.quantity_received),
-            reference_type: 'GOODS_RECEIPT',
-            reference_id: item.gr_id,
-            notes: `Réception marchandise - BR ${item.gr_id}`,
-            created_by: userId,
+          // Check if product is physical (not service or digital)
+          const product = await this.productRepo.findOne({
+            where: { id: item.product_id },
           });
+          
+          if (!product) {
+            this.logger.warn(`Product ${item.product_id} not found, skipping stock movement`);
+            continue;
+          }
+          
+          if (product.type === ProductType.SERVICE || product.type === ProductType.DIGITAL) {
+            this.logger.debug(`Product ${item.product_id} is a service or digital product, skipping stock movement`);
+            continue;
+          }
+          
+          await this.stockMovementsService.createManual(businessId, {
+            product_id: item.product_id,
+            type: StockMovementType.ENTREE_ACHAT,
+            quantity: Number(item.quantity_received),
+            source_type: 'GOODS_RECEIPT',
+            source_id: item.gr_id,
+            note: `Réception marchandise - BR ${item.gr_id}`,
+          });
+          this.logger.log(`✅ Stock movement created for product ${item.product_id}, quantity: ${item.quantity_received}`);
         } catch (err: any) {
           this.logger.error(`Erreur mise à jour stock produit ${item.product_id}: ${err.message}`);
+          // Don't throw - continue with other items
         }
       }
-    }*/
+    }
   }

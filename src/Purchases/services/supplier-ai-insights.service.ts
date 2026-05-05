@@ -66,6 +66,14 @@ export class SupplierAiInsightsService {
   private readonly apiUrl =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
+  // Rate limiting: track API calls
+  private apiCallCount = 0;
+  private apiCallResetTime = Date.now() + 24 * 60 * 60 * 1000; // Reset after 24h
+  private readonly MAX_DAILY_CALLS = 15; // Leave buffer below 20 limit
+
+  // Cache for insights (avoid regenerating for same supplier)
+  private insightsCache = new Map<string, { data: SupplierAIInsights; timestamp: number }>();
+  private readonly CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
   constructor(private readonly config: ConfigService) {
     this.apiKey = this.config.get<string>('GEMINI_API_KEY', '');
@@ -78,21 +86,67 @@ export class SupplierAiInsightsService {
   ): Promise<SupplierAIInsights> {
     const start = Date.now();
 
+    // Check cache first
+    const cached = this.insightsCache.get(supplierScore.supplier_id);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
+      this.logger.log(`Using cached insights for "${supplierScore.supplier_name}"`);
+      return cached.data;
+    }
+
     if (!this.apiKey) {
       this.logger.warn('GEMINI_API_KEY non configurée — analyse basique');
       return this.generateBasicInsights(supplierScore);
     }
 
+    // Check rate limit
+    if (!this.canMakeApiCall()) {
+      this.logger.warn(`Rate limit atteint (${this.apiCallCount}/${this.MAX_DAILY_CALLS}) — analyse basique`);
+      return this.generateBasicInsights(supplierScore);
+    }
+
     try {
       const result = await this.analyzeWithAI(supplierScore, historicalData);
+      
+      // Cache the result
+      this.insightsCache.set(supplierScore.supplier_id, {
+        data: result,
+        timestamp: Date.now(),
+      });
+      
       this.logger.log(
         `Insights IA générés en ${Date.now() - start}ms pour "${supplierScore.supplier_name}" (confiance: ${result.analysis_confidence}%)`,
       );
       return result;
     } catch (error: any) {
-      this.logger.error(`Erreur analyse IA: ${error.message}`);
+      // Check if it's a rate limit error
+      if (error.message?.includes('429') || error.message?.includes('quota')) {
+        this.logger.error(`Quota API dépassé — basculement sur analyse basique`);
+        this.apiCallCount = this.MAX_DAILY_CALLS; // Block further calls
+      } else if (error.message?.includes('503')) {
+        this.logger.warn(`API surchargée (503) — basculement sur analyse basique`);
+      } else {
+        this.logger.error(`Erreur analyse IA: ${error.message}`);
+      }
+      
       return this.generateBasicInsights(supplierScore);
     }
+  }
+
+  // ─── Rate Limiting ────────────────────────────────────────────────────────
+  private canMakeApiCall(): boolean {
+    // Reset counter if 24h passed
+    if (Date.now() > this.apiCallResetTime) {
+      this.apiCallCount = 0;
+      this.apiCallResetTime = Date.now() + 24 * 60 * 60 * 1000;
+      this.logger.log('Rate limit counter reset');
+    }
+
+    return this.apiCallCount < this.MAX_DAILY_CALLS;
+  }
+
+  private incrementApiCallCount(): void {
+    this.apiCallCount++;
+    this.logger.debug(`API calls: ${this.apiCallCount}/${this.MAX_DAILY_CALLS}`);
   }
 
   // ─── Analyse IA ───────────────────────────────────────────────────────────
@@ -130,7 +184,13 @@ ${strongCriteria.length > 0   ? `\n💪 POINTS FORTS: ${strongCriteria.map(c => 
 🚚 Livraisons: ${score.stats.delivery_rate_pct}% taux (${score.stats.total_items_received}/${score.stats.total_items_ordered} unités)
 ⏱️ Ponctualité: ${score.stats.on_time_rate_pct}% (${score.stats.on_time_deliveries}/${score.stats.total_deliveries} à temps)${hasDelays ? ' ⚠️ RETARDS RÉCURRENTS' : ''}
 ⚖️ Litiges: ${score.stats.dispute_rate_pct}% (${score.stats.disputed_invoices}/${score.stats.total_invoices} factures)${hasDisputes ? ' 🚨 TAUX ÉLEVÉ' : ''}
-💰 Paiements: ${score.stats.payment_rate_pct}% payé | ${score.stats.total_paid.toFixed(3)}/${score.stats.total_invoiced.toFixed(3)} TND | délai moy: ${score.stats.avg_payment_days}j${paymentHealthy ? ' ✅' : ''}
+💰 Vos paiements au fournisseur: ${score.stats.payment_rate_pct}% payé | ${score.stats.total_paid.toFixed(3)}/${score.stats.total_invoiced.toFixed(3)} TND | votre délai moy de paiement: ${score.stats.avg_payment_days}j${paymentHealthy ? ' ✅ VOUS PAYEZ BIEN' : ' ⚠️ VOS RETARDS DE PAIEMENT'}
+
+IMPORTANT: Dans ce module ACHATS, c'est VOUS (l'entreprise) qui devez PAYER le fournisseur.
+- Un délai de paiement court = VOUS payez rapidement (bon pour la relation)
+- Un délai de paiement long = VOUS payez en retard (mauvais pour la relation)
+- Un taux de paiement élevé = VOUS avez bien payé vos factures (bon)
+- Des retards de paiement = VOUS êtes en retard pour payer (à améliorer de VOTRE côté)
 
 ═══ INSTRUCTIONS D'ANALYSE ═══
 Produis une analyse PRÉCISE basée sur les chiffres réels. Pas de généralités.
@@ -152,6 +212,9 @@ RÉPONDS EN JSON COMPACT (sans espaces, sans markdown):
         },
       }),
     });
+
+    // Increment counter after successful request
+    this.incrementApiCallCount();
 
     if (!response.ok) {
       const err = await response.text();

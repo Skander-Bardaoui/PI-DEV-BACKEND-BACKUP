@@ -41,16 +41,16 @@ export class GoodsReceiptItem {
   // ── Produit (Module Stock) ────────────────────────────────────
   // Dupliqué depuis SupplierPOItem pour l'appel HTTP vers Module 4
   // sans avoir besoin d'un JOIN supplémentaire
-  @Column({ type: 'uuid', nullable: true })
-  product_id: string | null;
+  @Column({ type: 'uuid', nullable: false })
+  product_id: string;
 
   @ManyToOne(() => Product, (p) => p.goodsReceiptItems, {
-    nullable: true,
+    nullable: false,
     eager: false,
-    onDelete: 'SET NULL',
+    onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'product_id' })
-  product: Product | null;
+  product: Product;
 
   // ── Données de la ligne ───────────────────────────────────────
   @Column({ type: 'decimal', precision: 15, scale: 3 })

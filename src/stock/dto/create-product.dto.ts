@@ -5,7 +5,9 @@ import {
   IsBoolean,
   IsUUID,
   Min,
+  IsEnum,
 } from 'class-validator';
+import { ProductType } from '../entities/product.entity';
 
 export class CreateProductDto {
   @IsString()
@@ -46,6 +48,10 @@ export class CreateProductDto {
   default_supplier_id?: string;
 
   @IsOptional()
+  @IsUUID()
+  warehouse_id?: string;
+
+  @IsOptional()
   @IsString()
   unit?: string;
 
@@ -67,10 +73,16 @@ export class CreateProductDto {
   track_inventory?: boolean;
 
   @IsOptional()
-  @IsString()
-  type?: string;
+  @IsEnum(ProductType)
+  type?: ProductType;
 
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  // ==================== Product image ====================
+  @IsOptional()
+  @IsString()
+  image_url?: string;
+  // ======================================================
 }

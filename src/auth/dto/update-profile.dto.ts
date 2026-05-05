@@ -42,4 +42,9 @@ export class UpdateProfileDto {
   @MinLength(8)
   @MaxLength(100)
   password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(7) // Format: #RRGGBB
+  messageColor?: string;
 }
